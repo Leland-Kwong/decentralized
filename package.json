@@ -1,0 +1,38 @@
+{
+  "name": "gundb-example",
+  "version": "0.1.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "parcel index.html",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "debug": "^3.1.0",
+    "del": "^3.0.0",
+    "encoding-down": "^4.0.0",
+    "express": "^4.16.2",
+    "fs-extra": "^5.0.0",
+    "leveldown": "^3.0.0",
+    "levelup": "^2.0.2",
+    "lru-cache": "^4.1.1",
+    "react": "^16.2.0",
+    "react-dom": "^16.2.0",
+    "socket.io": "^2.0.4"
+  },
+  "devDependencies": {
+    "babel-eslint": "^8.1.2",
+    "babel-plugin-transform-class-properties": "^6.24.1",
+    "babel-plugin-transform-react-jsx": "^6.24.1",
+    "eslint": "^4.14.0",
+    "eslint-config-standard": "^10.2.1",
+    "eslint-plugin-babel": "^4.1.2",
+    "eslint-plugin-react": "^7.1.0",
+    "eslint-plugin-standard": "^3.0.1",
+    "hyperapp": "^1.1.2",
+    "next": "^5.0.0",
+    "parcel-bundler": "^1.6.1"
+  }
+}
