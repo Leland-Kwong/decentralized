@@ -1,37 +1,57 @@
 {
-  "name": "gundb-example",
+  "name": "event-driven-storage",
   "version": "0.1.0",
   "description": "",
   "main": "index.js",
+  "jest": {
+    "moduleNameMapper": {
+      "\\.(jpg|jpeg|png|gif|eot|otf|webp|svg|ttf|woff|woff2|mp4|webm|wav|mp3|m4a|aac|oga)$": "<rootDir>/__mocks__/fileMock.js",
+      "\\.(css|scss)$": "<rootDir>/__mocks__/styleMock.js"
+    }
+  },
   "scripts": {
-    "start": "parcel index.html",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start:dev": "NODE_ENV=dev parcel index.html",
+    "start:staging": "NODE_ENV=staging parcel index.html",
+    "start": "node src/server/index",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "deploy": "now --dotenv"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "body-parser": "^1.18.2",
+    "compression": "^1.7.1",
+    "cors": "^2.8.4",
     "debug": "^3.1.0",
     "del": "^3.0.0",
+    "dotenv": "^5.0.0",
     "encoding-down": "^4.0.0",
     "express": "^4.16.2",
     "fs-extra": "^5.0.0",
     "leveldown": "^3.0.0",
     "levelup": "^2.0.2",
     "lru-cache": "^4.1.1",
+    "mailgun-js": "^0.16.0",
+    "nodemailer": "^4.4.2",
     "react": "^16.2.0",
     "react-dom": "^16.2.0",
+    "request": "^2.83.0",
+    "shortid": "^2.2.8",
     "socket.io": "^2.0.4"
   },
   "devDependencies": {
     "babel-eslint": "^8.1.2",
     "babel-plugin-transform-class-properties": "^6.24.1",
     "babel-plugin-transform-react-jsx": "^6.24.1",
+    "chance": "^1.0.13",
     "eslint": "^4.14.0",
     "eslint-config-standard": "^10.2.1",
     "eslint-plugin-babel": "^4.1.2",
     "eslint-plugin-react": "^7.1.0",
     "eslint-plugin-standard": "^3.0.1",
     "hyperapp": "^1.1.2",
+    "jest": "^22.3.0",
+    "jest-cli": "^22.3.0",
     "next": "^5.0.0",
     "parcel-bundler": "^1.6.1"
   }

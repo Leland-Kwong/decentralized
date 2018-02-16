@@ -24,7 +24,7 @@ module.exports = function(
     if (err) {
       return onError(err);
     }
-    onNext(key, value, iter);
+    onNext({ key, value }, iter);
     iter.next(handleNext);
   };
   iter.next(handleNext);

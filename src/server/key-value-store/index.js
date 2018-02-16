@@ -72,9 +72,20 @@ class KV extends LevelUp {
   }
 }
 
+const hasKeyThenHandler = res => !!res;
+KV.prototype.hasKey = function(key) {
+  return new Promise((resolve, reject) => {
+    this.iterator({ gte: key, lte: key }, {
+      onNext: resolve,
+      onError: reject,
+      onComplete: resolve
+    });
+  }).then(hasKeyThenHandler);
+};
+
 KV.prototype.iterator = require('./iterator');
 
-const init = async (rootDir) => {
+const init = async (rootDir, options = {}) => {
   const fromCache = dbsCache.get(rootDir);
   if (fromCache && !fromCache.isClosed()) {
     return fromCache;
@@ -85,9 +96,8 @@ const init = async (rootDir) => {
     console.log(err);
   }
   const dataDb = encode(
-    leveldown(rootDir), {
-      // valueEncoding: 'utf8'
-    }
+    leveldown(rootDir),
+    options.encoding || {}
   );
   const dataLevel = new KV(dataDb, rootDir);
   await new Promise(resolve => {
