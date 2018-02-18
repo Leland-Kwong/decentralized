@@ -166,14 +166,6 @@ module.exports = (app) => {
       res.status(401).send(loginErrors.invalidCode);
     }
   });
-
-  // const authCheck = require('../auth-check');
-  // const refreshToken = require('./refresh-token');
-  // app.options('/api/refresh-token', cors({ maxAge: 600 }));
-  // app.get('/api/refresh-token', cors({ maxAge: 600 }), authCheck, refreshToken);
-  //
-  // app.options('/api/logout', cors());
-  // app.post('/api/logout', cors(), authCheck, logoutRoute);
 };
 
 Object.assign(module.exports, {

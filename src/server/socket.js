@@ -1,10 +1,12 @@
 // TODO: add support for server-side functions
-// TODO: batch writes to be 20ops/ms ?
+// TODO: batch writes to be 20ops/tick?
 // TODO: watch '_data' folder and close the database if folder gets deleted
 const KV = require('./key-value-store');
 const parseData = require('./key-value-store/parse-data');
 const Debug = require('debug');
 const { AccessToken } = require('./login');
+const shortid = require('shortid');
+const Now = require('performance-now');
 const debug = {
   checkToken: Debug('evds.socket.checkToken')
 };
@@ -32,18 +34,30 @@ const normalizeGet = (data) => {
   }
   return type === 'json' ? JSON.parse(value) : value;
 };
+
 const { dbBasePath: dbRoot } = require('./config');
 const path = require('path');
 const dbBasePath = ({ bucket }) => path.join(dbRoot, bucket);
+const logIdSeed = shortid.generate();
 const dbLog = {
   async addEntry({ bucket, key, actionType, value = '' }) {
     const db = await KV(dbBasePath({ bucket: '_log' }));
-    const uid = `${new Date().getTime()}_${process.hrtime().join('.').substr(0, 14)}`;
+    // current time in microseconds. (source)[https://stackoverflow.com/questions/11725691/how-to-get-a-microtime-in-node-js]
+    const uid = (Date.now() + Now()) * 10000 + '_' + logIdSeed;
     db.put(uid, `dbLog\n${bucket}\n${key}\n${actionType}${delim.v}${value}`);
   },
 };
-const getKey = (bucket, key) => {
-  return `${bucket}${key ? '/' + key : ''}`;
+
+const dbStreamHandler = (keys, values, cb) => {
+  if (keys && values) {
+    return (data) => cb(data);
+  }
+  if (!values) {
+    return (key) => cb({ key });
+  }
+  if (!keys) {
+    return (value) => cb({ value });
+  }
 };
 
 io.on('connection', (client) => {
@@ -64,76 +78,93 @@ io.on('connection', (client) => {
     bucket,
     key = '',
     limit = -1,
-    reverse = false }) => {
+    reverse = false,
+    keys = true,
+    values = true,
+    initialValue = true
+  }, callback) => {
+    // a unique eventId for each subscription
+    const eventId = shortid.generate();
+    callback(eventId);
 
-    const subKey = getKey(bucket, key);
-    if (subscriptions.has(subKey)) {
-      return;
-    }
     const db = await KV(dbBasePath({ bucket }));
     const keyToSubscribe = key;
     const watchEntireBucket = key === '';
-    const onDbChangeCallback = action => async (key, value) => {
-      if (
-        !watchEntireBucket
-        && key !== keyToSubscribe
-      ) {
-        return;
-      }
-      client.emit(subKey, { ok: 1, action, key, value: normalizeGet(value) });
-    };
-    const putCb = onDbChangeCallback('put');
-    const delCb = onDbChangeCallback('del');
-    subscriptions.set(subKey, () => {
-      db.removeListener('put', putCb);
-      db.removeListener('del', delCb);
-    });
-    db.on('put', putCb);
-    db.on('del', delCb);
 
     // watch entire bucket
     if (watchEntireBucket) {
-      const options = { limit, reverse };
-      const stream = db.createReadStream(options);
-      stream.on('data', ({ key, value }) => {
-        client.emit(bucket, { ok: 1, key, value: normalizeGet(value) });
-      });
-      stream.on('error', (error) => {
-        client.emit(bucket, { ok: 0, error: error.message });
-      });
+      function bucketStream() {
+        const options = { limit, reverse, keys, values };
+        const stream = db.createReadStream(options);
+        const onDataCallback = (data) => client.emit(eventId, data);
+        stream.on('data', dbStreamHandler(keys, values, onDataCallback));
+        stream.on('error', (error) => {
+          client.emit(eventId, { error: error.message });
+        });
+      }
+
+      if (initialValue) {
+        bucketStream();
+      }
+
+      db.on('put', bucketStream);
+      db.on('del', bucketStream);
     } else {
       try {
-        const currentValue = await db.get(key);
-        client.emit(subKey, { ok: 1, value: normalizeGet(currentValue) });
+        if (initialValue) {
+          // emit initial value
+          const currentValue = await db.get(key);
+          client.emit(eventId, { value: normalizeGet(currentValue) });
+        }
+
+        // setup subscription
+        const putCb = async (key, value) => {
+          const ignore = !watchEntireBucket && key !== keyToSubscribe;
+          if (ignore) return;
+          client.emit(eventId, { action: 'put', key, value: normalizeGet(value) });
+        };
+        const delCb = async (key) => {
+          const ignore = !watchEntireBucket && key !== keyToSubscribe;
+          if (ignore) return;
+          client.emit(eventId, { action: 'del', key });
+        };
+        subscriptions.set(eventId, function cleanup() {
+          db.removeListener('put', putCb);
+          db.removeListener('del', delCb);
+        });
+        db.on('put', putCb);
+        db.on('del', delCb);
       } catch(err) {
         if (err.type === 'NotFoundError') {
           return;
         }
         require('debug')('db.subscribe')(err);
-        client.emit(subKey, { ok: 0, error: err.message });
+        client.emit(eventId, { error: err.message });
       }
     }
   };
+
   client.on('sub', subscribe);
   // subscribe to entire bucket
-  client.on('forEach', (params) => {
-    subscribe(params);
+  client.on('forEach', (params, callback) => {
+    subscribe(params, callback);
   });
 
-  client.on('get', async ({ bucket, key }, fn) => {
+  async function handleGet ({ bucket, key }, fn) {
     try {
       const db = await KV(dbBasePath({ bucket }));
       const value = await db.get(key);
-      fn({ ok: 1, value: normalizeGet(value) });
+      fn({ value: normalizeGet(value) });
     } catch(err) {
       if (err.type === 'NotFoundError') {
-        fn({ ok: 1, value: null });
+        fn({ value: null });
         return;
       }
       require('debug')('db.get')(err);
-      fn({ ok: 0, error: err });
+      fn({ error: err });
     }
-  });
+  }
+  client.on('get', handleGet);
 
   client.on('delete', async ({ bucket, key }, fn) => {
     const db = await KV(dbBasePath({ bucket }));
@@ -145,10 +176,10 @@ io.on('connection', (client) => {
       } else {
         await db.del(key);
       }
-      fn({ ok: 1 });
+      fn({});
     } catch(err) {
       require('debug')('db.delete')(err);
-      fn({ ok: 0, error: err });
+      fn({ error: err });
     }
   });
 
@@ -179,10 +210,10 @@ io.on('connection', (client) => {
     dbLog.addEntry({ bucket, key, actionType, value: putValue });
     try {
       await db.put(key, putValue);
-      fn({ ok: 1 });
+      fn({});
     } catch(err) {
       require('debug')('db.get')(err);
-      fn({ ok: 0, error: err.message });
+      fn({ error: err.message });
     }
   });
 });

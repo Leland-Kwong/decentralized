@@ -1,3 +1,6 @@
+const session = require('./session').default;
+const { serverApiBaseRoute } = require('./config');
+
 let hasExpired = false;
 let refreshTokenTimer = null;
 
@@ -7,28 +10,45 @@ const hoursToMS = (hours) =>
 const durationFromExpiration = (expiration) =>
   expiration - new Date().getTime();
 
-const getAccessToken = (loginCode) => {
-  const url = constructApiUrl(`/api/access-token/${loginCode}`, projectID, customOrigin);
+const defaults = {
+  tokenRefreshRate: hoursToMS(2)
+};
+
+const handleError = (data) => Promise.reject(data);
+
+const handleFetch = (res) => {
+  const isError = res.status >= 400;
+  if (isError) {
+    return res.json()
+      .then(handleError);
+  }
+  return res;
+};
+
+const getRefreshToken = () => {
+  const url = `${serverApiBaseRoute}/api/refresh-token`;
+  const token = session.get().accessToken;
   return fetch(url, {
+    headers: {
+      authorization: `Bearer ${token}`
+    },
     method: 'GET',
-  }).then(handleFetch)
-    .then(res => res.json())
-    .then(json => {
-      const { expiresAt, userID } = json;
-      if (json.error) {
-        session.end();
-        return json;
-      }
+  }).then(res => res.json())
+    .then(res => {
+      const { expiresAt } = res;
       session.set({
-        ...json,
-        duration: durationFromExpiration(expiresAt)
+        ...res,
+        duration: durationFromExpiration(expiresAt),
+        userId: session.get().userId
       });
-      authStateChangeFn(userID);
-      return json;
+      return res;
     });
 };
 
-const scheduleTokenRefresh = ({ expiresAt }) => {
+export const scheduleTokenRefresh = ({
+  expiresAt,
+  refreshRate = defaults.tokenRefreshRate
+}) => {
   if (refreshTokenTimer) {
     return;
   }
@@ -38,14 +58,14 @@ const scheduleTokenRefresh = ({ expiresAt }) => {
     Refresh 2 hours from last refresh. This allows us to keep the session fresher
     as long as the user is continuously using it.
    */
-  let delay = expiresIn - tokenDuration + tokenRefreshRate;
+  let delay = expiresIn - tokenDuration + refreshRate;
   delay = delay < 0 ? 0 : delay;
 
   hasExpired = expiresIn <= 0;
   if (!hasExpired) {
 
     // log session duration info
-    if (DEVELOPMENT) {
+    if (process.env.NODE_ENV === 'dev') {
       const MSToHours = (ms) =>
         Number((ms / msPerHour).toFixed(2));
 
@@ -65,6 +85,28 @@ const scheduleTokenRefresh = ({ expiresAt }) => {
     }, delay);
   } else {
     refreshTokenTimer = null;
-    logout();
   }
+};
+
+export const getAccessToken = (loginCode) => {
+  const url = `${serverApiBaseRoute}/api/access-token/${loginCode}`;
+  return fetch(url, {
+    method: 'GET',
+  }).then(handleFetch)
+    .then(res => res.json())
+    .then(json => {
+      const { expiresAt } = json;
+      if (json.error) {
+        session.end();
+        return json;
+      }
+      session.set({
+        ...json,
+        duration: durationFromExpiration(expiresAt)
+      });
+      scheduleTokenRefresh({
+        expiresAt
+      });
+      return json;
+    });
 };

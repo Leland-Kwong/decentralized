@@ -2,6 +2,8 @@
 
 import React, { Component } from 'react';
 import { render } from 'react-dom';
+import { getAccessToken, scheduleTokenRefresh } from './auth';
+import session from './session';
 
 const $App = document.querySelector('#App');
 const { serverApiBaseRoute } = require('./config');
@@ -16,7 +18,7 @@ class LoginForm extends Component {
   }
 
   componentDidMount() {
-    const token = localStorage.getItem('evds.token');
+    const token = session.get().accessToken;
     if (token) {
       return this.props.onAuthorized({ token });
     }
@@ -37,9 +39,8 @@ class LoginForm extends Component {
   handleSubmit = (e) => {
     e.preventDefault();
     const { loginCode } = this.state;
-    fetch(`${apiBaseRoute}/access-token/${loginCode}`)
+    getAccessToken(loginCode)
       .catch(err => console.error(err))
-      .then(res => res.json())
       .then(res => this.props.onAuthorized({ token: res.accessToken }));
   }
 
@@ -67,8 +68,8 @@ function startApp() {
   function promisifySocket() {
     let callback;
     const promise = new Promise(function (resolve, reject) {
-      callback = function callback({ ok, error, value }) {
-        if (!ok) reject(error);
+      callback = function callback({ error, value }) {
+        if (error) reject(error);
         else resolve(value);
       };
     });
@@ -81,10 +82,15 @@ function startApp() {
       bucket,
       limit,
       reverse,
+      keys = true,
+      values = true
       // TODO: add support for `range` option to limit response to range of keys
     } = params;
-    socket.on(bucket, cb);
-    socket.emit('forEach', { bucket, limit, reverse });
+    socket.emit(
+      'forEach',
+      { bucket, limit, reverse, keys, values },
+      (eventId) => socket.on(eventId, cb)
+    );
   }
 
   function subscribe(params, subscriber) {
@@ -93,10 +99,11 @@ function startApp() {
       return forEach(params, subscriber);
     }
     const subKey = `${bucket}/${key}`;
-    socket.on(subKey, subscriber);
     socket.emit('sub', {
       bucket,
       key
+    }, (eventId) => {
+      socket.on(eventId, subscriber);
     });
     return () => socket.off(subKey, subscriber);
   }
@@ -107,7 +114,7 @@ function startApp() {
     return callback.promise;
   }
 
-  // gets the value once then removes the socket listener
+  // gets the value once
   function get(params, cb) {
     const callback = cb || promisifySocket();
     socket.emit('get', params, callback);
@@ -125,6 +132,7 @@ function startApp() {
     state = {
       message: '',
       output: '',
+      notification: null
     }
 
     componentDidMount() {
@@ -133,7 +141,9 @@ function startApp() {
       const io = require('socket.io-client');
       socket = io(socketClientBasePath, {
         query: { token },
-        secure: true
+        secure: true,
+        // force websocket as default
+        transports: ['websocket']
       });
       socket
         .on('connect', () => {
@@ -148,17 +158,32 @@ function startApp() {
         })
         .on('error', (err) => {
           console.error('error', err);
-        });
+        })
+        .on('reconnect_attempt', this.handleReconnectAttempt)
+        .on('reconnect', this.handleReconnect);
+    }
+
+    handleReconnectAttempt = (/*attemptNumber*/) => {
+      this.setState({
+        notification: {
+          title: 'reconnect attempt',
+          message: 'reconnecting...'
+        }
+      });
+    }
+
+    handleReconnect = () => {
+      this.setState({ notification: null });
     }
 
     handleStart() {
       subscribe({
         bucket: 'leland.chat',
         key: 'message'
-      }, ({ ok, value, error }) => {
-        if (ok && value) {
+      }, ({ value, error }) => {
+        if (value) {
           this.setState({ message: value.message });
-        } else if (!ok) {
+        } else if (error) {
           console.log(error);
         }
       });
@@ -171,8 +196,22 @@ function startApp() {
           console.log('get', value);
         });
 
-      subscribe({ bucket: '_log', limit: 5, reverse: true }, (data) => {
-        console.log(data.value);
+      subscribe({
+        bucket: '_log',
+        limit: 1,
+        // reverse: true,
+        // values: false,
+      }, (data) => {
+        console.log(data);
+      });
+
+      subscribe({
+        bucket: '_log',
+        limit: 1,
+        reverse: true,
+        // values: false,
+      }, (data) => {
+        console.log(data);
       });
     }
 
@@ -185,19 +224,27 @@ function startApp() {
 
       this.setState({ message: value });
 
-      put({
-        bucket: 'leland.chat',
-        key: 'message1',
-        value
-      }).then(() => {
-        del({ bucket: 'leland.chat', key: 'message1' });
-      });
+      // put({
+      //   bucket: 'leland.chat',
+      //   key: 'message1',
+      //   value
+      // }).then(() => {
+      //   del({ bucket: 'leland.chat', key: 'message1' });
+      // });
     }
 
     render() {
       return (
         <div>
-          <strong>{this.props.token}</strong>
+          {this.state.notification
+            && (
+              <div>
+                <pre><code>{
+                  JSON.stringify(this.state.notification, null, 4)
+                }</code></pre>
+              </div>
+            )
+          }
           <section>
             <div>
               <label htmlFor="name" className="f6 b db mb2">Name <span className="normal black-60">(optional)</span></label>
@@ -222,21 +269,29 @@ function startApp() {
 
   class App extends Component {
     state = {
-      loggedIn: localStorage.getItem('evds.token') || false,
-      token: localStorage.getItem('evds.token')
+      loggedIn: session.get().accessToken || false,
+      token: session.get().accessToken
+    }
+
+    componentDidMount() {
+      if (this.state.loggedIn) {
+        const { expiresAt } = session.get();
+        scheduleTokenRefresh({ expiresAt });
+      }
     }
 
     handleLogin = ({ token }) => {
-      localStorage.setItem('evds.token', token);
       this.setState({
         loggedIn: true,
         token
       });
+      const { expiresAt } = session.get();
+      scheduleTokenRefresh({ expiresAt });
     }
 
     handleLogout = () => {
-      const token = localStorage.getItem('evds.token');
-      localStorage.removeItem('evds.token');
+      const token = session.get().accessToken;
+      session.end();
       this.setState({ loggedIn: false });
       fetch(`${apiBaseRoute}/logout/${token}`, {
         method: 'post',
