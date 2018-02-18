@@ -88,7 +88,7 @@ export const scheduleTokenRefresh = ({
   }
 };
 
-export const getAccessToken = (loginCode) => {
+export const requestAccessToken = (loginCode) => {
   const url = `${serverApiBaseRoute}/api/access-token/${loginCode}`;
   return fetch(url, {
     method: 'GET',

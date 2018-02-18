@@ -38,6 +38,7 @@ const normalizeGet = (data) => {
 const { dbBasePath: dbRoot } = require('./config');
 const path = require('path');
 const dbBasePath = ({ bucket }) => path.join(dbRoot, bucket);
+// NOTE: if we're running multiple instances, this allows us to guarantee uniqueness across processes.
 const logIdSeed = shortid.generate();
 const dbLog = {
   async addEntry({ bucket, key, actionType, value = '' }) {

@@ -2,7 +2,7 @@
 
 import React, { Component } from 'react';
 import { render } from 'react-dom';
-import { getAccessToken, scheduleTokenRefresh } from './auth';
+import { requestAccessToken, scheduleTokenRefresh } from './auth';
 import session from './session';
 
 const $App = document.querySelector('#App');
@@ -14,7 +14,9 @@ class LoginForm extends Component {
   }
 
   state = {
-    loginCode: ''
+    loginCode: '',
+    email: '',
+    loginRequested: false
   }
 
   componentDidMount() {
@@ -22,13 +24,26 @@ class LoginForm extends Component {
     if (token) {
       return this.props.onAuthorized({ token });
     }
+  }
+
+  handleSubmit = (e) => {
+    e.preventDefault();
+    const { loginCode } = this.state;
+    requestAccessToken(loginCode)
+      .catch(err => console.error(err))
+      .then(res => this.props.onAuthorized({ token: res.accessToken }));
+  }
+
+  handleLoginRequest = (e) => {
+    e.preventDefault();
+    this.setState({ loginRequested: true });
     fetch(`${apiBaseRoute}/login`, {
       method: 'post',
       headers: {
         'content-type': 'application/json'
       },
       body: JSON.stringify({
-        email: 'leland.kwong@gmail.com'
+        email: this.state.email
       })
     }).catch(err => {
       console.error(err);
@@ -36,28 +51,42 @@ class LoginForm extends Component {
       .then(res => console.log(res));
   }
 
-  handleSubmit = (e) => {
-    e.preventDefault();
-    const { loginCode } = this.state;
-    getAccessToken(loginCode)
-      .catch(err => console.error(err))
-      .then(res => this.props.onAuthorized({ token: res.accessToken }));
-  }
-
   setLoginCode = (e) => {
     this.setState({ loginCode: e.target.value });
   }
 
+  setEmail = (e) => {
+    this.setState({ email: e.target.value });
+  }
+
   render() {
+    if (!this.state.loginRequested) {
+      return (
+        <form onSubmit={this.handleLoginRequest}>
+          <label htmlFor="name" className="f6 b db mb2">Sign-in with email: <span className="normal black-60">(required)</span></label>
+          <input
+            type='email'
+            autoComplete={'email'}
+            value={this.state.email}
+            onChange={this.setEmail}
+            className='input-reset ba b--black-20 pa2 mb2 db w-100'
+          />
+          <button>login</button>
+        </form>
+      );
+    }
     return (
-      <form onSubmit={this.handleSubmit}>
-        <label htmlFor="name" className="f6 b db mb2">Login code: <span className="normal black-60">(required)</span></label>
-        <input
-          value={this.state.loginCode}
-          onChange={this.setLoginCode}
-          className='input-reset ba b--black-20 pa2 mb2 db w-100'
-        />
-      </form>
+      <div>
+        <div><strong>Email sent to {this.state.email}</strong></div>
+        <form onSubmit={this.handleSubmit}>
+          <label htmlFor="name" className="f6 b db mb2">Login code: <span className="normal black-60">(required)</span></label>
+          <input
+            value={this.state.loginCode}
+            onChange={this.setLoginCode}
+            className='input-reset ba b--black-20 pa2 mb2 db w-100'
+          />
+        </form>
+      </div>
     );
   }
 }
@@ -313,7 +342,7 @@ function startApp() {
       session.end();
       this.setState({ loggedIn: false });
       fetch(`${apiBaseRoute}/logout/${token}`, {
-        method: 'post',
+        method: 'POST',
         headers: {
           'content-type': 'application/json'
         }
