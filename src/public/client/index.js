@@ -2,6 +2,7 @@
 
 import React, { Component } from 'react';
 import { render } from 'react-dom';
+import Socket from '../socket-client';
 import { requestAccessToken, scheduleTokenRefresh } from './auth';
 import session from './session';
 
@@ -92,70 +93,7 @@ class LoginForm extends Component {
 }
 
 function startApp() {
-  let socket;
-
-  function promisifySocket() {
-    let callback;
-    const promise = new Promise(function (resolve, reject) {
-      callback = function callback({ error, value }) {
-        if (error) reject(error);
-        else resolve(value);
-      };
-    });
-    callback.promise = promise;
-    return callback;
-  }
-
-  function forEach(params, cb) {
-    const {
-      bucket,
-      limit,
-      reverse,
-      keys = true,
-      values = true
-      // TODO: add support for `range` option to limit response to range of keys
-    } = params;
-    socket.emit(
-      'forEach',
-      { bucket, limit, reverse, keys, values },
-      (eventId) => socket.on(eventId, cb)
-    );
-  }
-
-  function subscribe(params, subscriber) {
-    const { bucket, key } = params;
-    if (typeof key === 'undefined') {
-      return forEach(params, subscriber);
-    }
-    const subKey = `${bucket}/${key}`;
-    socket.emit('sub', {
-      bucket,
-      key
-    }, (eventId) => {
-      socket.on(eventId, subscriber);
-    });
-    return () => socket.off(subKey, subscriber);
-  }
-
-  function put({ bucket, key, value }, cb) {
-    const callback = cb || promisifySocket();
-    socket.emit('put', { bucket, key, value }, callback);
-    return callback.promise;
-  }
-
-  // gets the value once
-  function get(params, cb) {
-    const callback = cb || promisifySocket();
-    socket.emit('get', params, callback);
-    return callback.promise;
-  }
-
-  function del(params, cb) {
-    const { bucket, key } = params;
-    const callback = cb || promisifySocket();
-    socket.emit('delete', { bucket, key }, callback);
-    return callback.promise;
-  }
+  let sockClient;
 
   class Example extends Component {
     state = {
@@ -168,12 +106,13 @@ function startApp() {
       const { token, onLogout } = this.props;
       const socketClientBasePath = `${serverApiBaseRoute}`;
       const io = require('socket.io-client');
-      socket = io(socketClientBasePath, {
+      const socket = io(socketClientBasePath, {
         query: { token },
         secure: true,
         // force websocket as default
         transports: ['websocket']
       });
+      sockClient = new Socket(socket);
       socket
         .on('connect', this.handleStart)
         .on('disconnect', this.handleDisconnect)
@@ -198,10 +137,10 @@ function startApp() {
       });
     }
 
-    handleReconnectAttempt = (/*attemptNumber*/) => {
+    handleReconnectAttempt = (attemptNumber) => {
       this.notify({
         title: 'reconnect attempt',
-        message: 'reconnecting...'
+        message: `reconnecting... (attempt ${attemptNumber})`
       });
     }
 
@@ -225,7 +164,7 @@ function startApp() {
     }
 
     handleStart = () => {
-      subscribe({
+      sockClient.subscribe({
         bucket: 'leland.chat',
         key: 'message'
       }, ({ value, error }) => {
@@ -236,7 +175,29 @@ function startApp() {
         }
       });
 
-      get({
+      let count = 0;
+      let items = [];
+      sockClient.forEach(
+        {
+          bucket: '_oplog',
+          // limit: 10,
+          values: false,
+          // lt: 1518908195449
+          gt: new Date('2018-02-17T00:00:00.000Z').getTime(),
+          lt: new Date('2018-02-18T00:00:00.000Z').getTime()
+        },
+        (data, i) => {
+          if (i === 0) {
+            items = [];
+          }
+          count = i;
+          items.push(data);
+          // console.log(data);
+        },
+        () => console.log({ count, lastItem: items.slice(-1)[0] })
+      );
+
+      sockClient.get({
         bucket: 'leland.chat',
         key: 'message'
       }).catch(err => console.log(err))
@@ -244,31 +205,36 @@ function startApp() {
           console.log('get', value);
         });
 
-      subscribe({
-        bucket: '_log',
+      sockClient.subscribe({
+        bucket: '_oplog',
         limit: 1,
         // reverse: true,
-        // values: false,
+        // keys: false,
       }, (data) => {
         console.log(data);
       });
 
-      subscribe({
-        bucket: '_log',
+      sockClient.subscribe({
+        bucket: '_oplog',
         limit: 1,
         reverse: true,
-        // values: false,
+        keys: false,
       }, (data) => {
-        console.log(data);
+        console.log(data.value);
       });
     }
 
     setMessage(value) {
-      put({
+      sockClient.patch({
         bucket: 'leland.chat',
         key: 'message',
-        value: { message: value }
-      });
+        ops: [
+          { op: 'replace', path: '/message', value },
+          // { op: 'add', path: '/foo', value: {} },
+          // { op: 'add', path: '/foo/list', value: ['bar', 'none', 'ok'] },
+          { op: 'remove', path: '/foo/list/0' },
+        ]
+      }).catch(err => console.error(err));
 
       this.setState({ message: value });
 
@@ -279,6 +245,20 @@ function startApp() {
       // }).then(() => {
       //   del({ bucket: 'leland.chat', key: 'message1' });
       // });
+    }
+
+    handleLogout = () => {
+      const token = session.get().accessToken;
+      session.end();
+      this.setState({ loggedIn: false });
+      fetch(`${apiBaseRoute}/logout/${token}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json'
+        }
+      }).catch(err => console.error(err))
+        .then(res => console.log(res));
+      sockClient.close();
     }
 
     render() {
@@ -294,6 +274,11 @@ function startApp() {
             )
           }
           <section>
+            <button onClick={this.handleLogout}>
+              logout
+            </button>
+          </section>
+          <section>
             <div>
               <label htmlFor="name" className="f6 b db mb2">Name <span className="normal black-60">(optional)</span></label>
               <input
@@ -306,9 +291,6 @@ function startApp() {
                 value={this.state.message}
               />
             </div>
-          </section>
-          <section>
-            server time: <strong>{this.state.ticker}</strong>
           </section>
         </div>
       );
@@ -337,19 +319,6 @@ function startApp() {
       scheduleTokenRefresh({ expiresAt });
     }
 
-    handleLogout = () => {
-      const token = session.get().accessToken;
-      session.end();
-      this.setState({ loggedIn: false });
-      fetch(`${apiBaseRoute}/logout/${token}`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json'
-        }
-      }).catch(err => console.error(err))
-        .then(res => console.log(res));
-    }
-
     render() {
       if (!this.state.loggedIn) {
         return (
@@ -360,12 +329,8 @@ function startApp() {
       }
       return (
         <div>
-          <button onClick={this.handleLogout}>
-            logout
-          </button>
           <Example
             token={this.state.token}
-            onLogout={this.handleLogout}
           />
         </div>
       );

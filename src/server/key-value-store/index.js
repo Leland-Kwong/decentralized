@@ -12,8 +12,6 @@ const dbsCache = require('lru-cache')({
   }
 });
 
-// const noop = () => {};
-
 function kvError({ msg, type }) {
   this.ok = 0;
   this.message = msg;
@@ -21,18 +19,6 @@ function kvError({ msg, type }) {
     this.type = type;
   }
 }
-
-// const defaults = () => ({
-//   encoding: {
-//     key: 'string',
-//     value: 'json'
-//   },
-//   storageLimit: {
-//     size: Infinity,
-//     // warn when size is within warnThreshold
-//     warnThreshold: 0
-//   }
-// });
 
 class KV extends LevelUp {
   constructor(db, rootDir) {
@@ -54,7 +40,7 @@ class KV extends LevelUp {
   }
 
   async reset() {
-    return await delDir([this.rootDir]);
+    return await delDir([this.rootDir], { force: true });
   }
 
   async update(key, updates) {

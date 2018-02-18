@@ -1,3 +1,5 @@
+// TODO: add syncing support #mvp
+// TODO: add support for key filters to `db.on`. Right now, each subscription function gets called whenever the database changes.
 // TODO: add support for server-side functions
 // TODO: batch writes to be 20ops/tick?
 // TODO: watch '_data' folder and close the database if folder gets deleted
@@ -8,7 +10,8 @@ const { AccessToken } = require('./login');
 const shortid = require('shortid');
 const Now = require('performance-now');
 const debug = {
-  checkToken: Debug('evds.socket.checkToken')
+  checkToken: Debug('evds.socket.checkToken'),
+  patch: Debug('evds.db.patch')
 };
 const getTokenFromSocket = (socket) =>
   socket.handshake.query.token;
@@ -25,7 +28,8 @@ const delim = {
   // value
   v: '\n\n'
 };
-const normalizeGet = (data) => {
+// parses the value based on the data type
+const parseGet = (data) => {
   const { headers, value } = parseData(data);
   const type = headers[0];
   if (type === 'dbLog') {
@@ -42,7 +46,7 @@ const dbBasePath = ({ bucket }) => path.join(dbRoot, bucket);
 const logIdSeed = shortid.generate();
 const dbLog = {
   async addEntry({ bucket, key, actionType, value = '' }) {
-    const db = await KV(dbBasePath({ bucket: '_log' }));
+    const db = await KV(dbBasePath({ bucket: '_oplog' }));
     // current time in microseconds. (source)[https://stackoverflow.com/questions/11725691/how-to-get-a-microtime-in-node-js]
     const uid = (Date.now() + Now()) * 10000 + '_' + logIdSeed;
     db.put(uid, `dbLog\n${bucket}\n${key}\n${actionType}${delim.v}${value}`);
@@ -51,18 +55,21 @@ const dbLog = {
 
 const dbStreamHandler = (keys, values, cb) => {
   if (keys && values) {
-    return (data) => cb(data);
+    return (data) => {
+      data.value = parseGet(data.value);
+      cb(data);
+    };
   }
   if (!values) {
     return (key) => cb({ key });
   }
   if (!keys) {
-    return (value) => cb({ value });
+    return (value) => cb({ value: parseGet(value) });
   }
 };
 
 io.on('connection', (client) => {
-  require('debug')('evds.connect')(client);
+  require('debug')('evds.connect')(client.handshake);
   client.use(async function checkToken(_, next) {
     const token = getTokenFromSocket(client);
     const { ok, data } = await AccessToken.verify(token);
@@ -79,10 +86,18 @@ io.on('connection', (client) => {
     bucket,
     key = '',
     limit = -1,
+    gt,
+    lt,
+    gte,
+    lte,
     reverse = false,
     keys = true,
     values = true,
-    initialValue = true
+    initialValue = true,
+    // If true, we will not subscribe to db changes, but instead stream out
+    // the results and then emit a { done: 1 } frame. This allows the client to
+    // do things like `forEach` once.
+    once = false
   }, callback) => {
     // a unique eventId for each subscription
     const eventId = shortid.generate();
@@ -95,17 +110,24 @@ io.on('connection', (client) => {
     // watch entire bucket
     if (watchEntireBucket) {
       function bucketStream() {
-        const options = { limit, reverse, keys, values };
+        const options = { limit, reverse, keys, values, gt, lt, gte, lte };
         const stream = db.createReadStream(options);
         const onDataCallback = (data) => client.emit(eventId, data);
         stream.on('data', dbStreamHandler(keys, values, onDataCallback));
         stream.on('error', (error) => {
           client.emit(eventId, { error: error.message });
         });
+        if (once) {
+          stream.on('end', () => client.emit(eventId, { done: 1 }));
+        }
       }
 
       if (initialValue) {
         bucketStream();
+      }
+
+      if (once) {
+        return;
       }
 
       db.on('put', bucketStream);
@@ -115,14 +137,14 @@ io.on('connection', (client) => {
         if (initialValue) {
           // emit initial value
           const currentValue = await db.get(key);
-          client.emit(eventId, { value: normalizeGet(currentValue) });
+          client.emit(eventId, { value: parseGet(currentValue) });
         }
 
         // setup subscription
         const putCb = async (key, value) => {
           const ignore = !watchEntireBucket && key !== keyToSubscribe;
           if (ignore) return;
-          client.emit(eventId, { action: 'put', key, value: normalizeGet(value) });
+          client.emit(eventId, { action: 'put', key, value: parseGet(value) });
         };
         const delCb = async (key) => {
           const ignore = !watchEntireBucket && key !== keyToSubscribe;
@@ -147,7 +169,7 @@ io.on('connection', (client) => {
 
   client.on('sub', subscribe);
   // subscribe to entire bucket
-  client.on('forEach', (params, callback) => {
+  client.on('subBucket', (params, callback) => {
     subscribe(params, callback);
   });
 
@@ -155,7 +177,7 @@ io.on('connection', (client) => {
     try {
       const db = await KV(dbBasePath({ bucket }));
       const value = await db.get(key);
-      fn({ value: normalizeGet(value) });
+      fn({ value: parseGet(value) });
     } catch(err) {
       if (err.type === 'NotFoundError') {
         fn({ value: null });
@@ -191,32 +213,46 @@ io.on('connection', (client) => {
     });
   });
 
-  client.on('put', async (data, fn) => {
+  async function dbPut(data, fn) {
     const {
       bucket,
       key,
-      value
+      value,
+      patch
     } = data;
     const db = await KV(dbBasePath({ bucket }));
     const [type, normalizedValue] = normalizePut(value);
 
-    let exists = false;
-    try {
-      exists = await db.hasKey(key);
-    } catch(err) {
-      require('debug')('db.hasKey')(err);
-    }
-    const actionType = exists ? 'put' : 'insert';
     const putValue = `${type}${delim.v}${normalizedValue}`;
-    dbLog.addEntry({ bucket, key, actionType, value: putValue });
+    const logValue = patch ? `${type}${delim.v}${patch}` : putValue;
+    const actionType = patch ? 'patch' : 'put';
+    dbLog.addEntry({ bucket, key, actionType, value: logValue });
     try {
       await db.put(key, putValue);
+      fn && fn({});
+    } catch(err) {
+      require('debug')('db.put')(err);
+      fn({ error: err.message });
+    }
+  }
+
+  const { applyReducer } = require('fast-json-patch');
+  client.on('patch', async (data, fn) => {
+    const { bucket, key, ops } = data;
+    try {
+      const db = await (KV(dbBasePath({ bucket })));
+      const curValue = parseGet(await db.get(key));
+      const parsedOps = JSON.parse(ops);
+      const patchResult = parsedOps.reduce(applyReducer, curValue);
+      await dbPut({ bucket, key, value: patchResult, patch: ops });
       fn({});
     } catch(err) {
-      require('debug')('db.get')(err);
+      debug.patch(err);
       fn({ error: err.message });
     }
   });
+
+  client.on('put', dbPut);
 });
 
 module.exports = (server) => {
