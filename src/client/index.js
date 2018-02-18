@@ -146,12 +146,8 @@ function startApp() {
         transports: ['websocket']
       });
       socket
-        .on('connect', () => {
-          this.handleStart();
-        })
-        .on('disconnect', () => {
-          console.log('connection closed');
-        })
+        .on('connect', this.handleStart)
+        .on('disconnect', this.handleDisconnect)
         .on('TokenError', (error) => {
           console.log(error);
           onLogout();
@@ -160,15 +156,23 @@ function startApp() {
           console.error('error', err);
         })
         .on('reconnect_attempt', this.handleReconnectAttempt)
+        .on('reconnect_error', this.handleReconnectError)
         .on('reconnect', this.handleReconnect);
     }
 
-    handleReconnectAttempt = (/*attemptNumber*/) => {
+    notify = ({ title, message }) => {
       this.setState({
         notification: {
-          title: 'reconnect attempt',
-          message: 'reconnecting...'
+          title,
+          message
         }
+      });
+    }
+
+    handleReconnectAttempt = (/*attemptNumber*/) => {
+      this.notify({
+        title: 'reconnect attempt',
+        message: 'reconnecting...'
       });
     }
 
@@ -176,7 +180,22 @@ function startApp() {
       this.setState({ notification: null });
     }
 
-    handleStart() {
+    handleReconnectError = (error) => {
+      console.error(error);
+      this.notify({
+        title: 'reconnect error',
+        message: error.message
+      });
+    }
+
+    handleDisconnect = () => {
+      this.notify({
+        title: 'connection error',
+        message: 'disconnected'
+      });
+    }
+
+    handleStart = () => {
       subscribe({
         bucket: 'leland.chat',
         key: 'message'
