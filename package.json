@@ -57,6 +57,7 @@
     "hyperapp": "^1.1.2",
     "jest": "^22.3.0",
     "jest-cli": "^22.3.0",
+    "localforage": "^1.5.6",
     "next": "^5.0.0",
     "parcel-bundler": "^1.6.1"
   }

@@ -106,7 +106,6 @@ function startApp() {
       const { token } = this.props;
       sockClient = new Socket({ token });
       sockClient.socket
-        .on('connect', this.handleStart)
         .on('disconnect', this.handleDisconnect)
         .on('TokenError', (error) => {
           console.log(error);
@@ -118,6 +117,7 @@ function startApp() {
         .on('reconnect_attempt', this.handleReconnectAttempt)
         .on('reconnect_error', this.handleReconnectError)
         .on('reconnect', this.handleReconnect);
+      this.handleStart();
     }
 
     notify = ({ title, message }) => {
@@ -165,6 +165,16 @@ function startApp() {
         } else if (error) {
           console.log(error);
         }
+      });
+
+      sockClient.subscribe({
+        bucket: 'leland.chat',
+        key: 'message',
+        query: /* GraphQL */`
+          { message }
+        `
+      }, ({ value }) => {
+        console.log('query', value);
       });
 
       sockClient.get({

@@ -11,7 +11,7 @@ const decodeData = require('./key-value-store/decode-data');
 const Debug = require('debug');
 const { AccessToken } = require('./login');
 const shortid = require('shortid');
-const queryData = require('./query-data');
+const queryData = require('../isomorphic/query-data');
 const Now = require('performance-now');
 const debug = {
   checkToken: Debug('evds.socket.checkToken'),
@@ -57,10 +57,10 @@ const dbLog = {
   },
 };
 
-const dbStreamHandler = (keys, values, cb) => {
+const dbStreamHandler = (keys, values, query, cb) => {
   if (keys && values) {
     return (data) => {
-      data.value = parseGet(data.value);
+      data.value = queryData(query, parseGet(data.value));
       cb(data);
     };
   }
@@ -68,7 +68,7 @@ const dbStreamHandler = (keys, values, cb) => {
     return (key) => cb({ key });
   }
   if (!keys) {
-    return (value) => cb({ value: parseGet(value) });
+    return (value) => cb({ value: queryData(query, parseGet(value)) });
   }
 };
 
@@ -101,7 +101,8 @@ io.on('connection', (client) => {
     // If true, we will not subscribe to db changes, but instead stream out
     // the results and then emit a { done: 1 } frame. This allows the client to
     // do things like `forEach` once.
-    once = false
+    once = false,
+    query
   }, callback) => {
     // a unique eventId for each subscription
     const eventId = shortid.generate();
@@ -117,7 +118,7 @@ io.on('connection', (client) => {
         const options = { limit, reverse, keys, values, gt, lt, gte, lte };
         const stream = db.createReadStream(options);
         const onDataCallback = (data) => client.emit(eventId, data);
-        stream.on('data', dbStreamHandler(keys, values, onDataCallback));
+        stream.on('data', dbStreamHandler(keys, values, query, onDataCallback));
         stream.on('error', (error) => {
           client.emit(eventId, { error: error.message });
         });
@@ -141,14 +142,20 @@ io.on('connection', (client) => {
         if (initialValue) {
           // emit initial value
           const currentValue = await db.get(key);
-          client.emit(eventId, { value: parseGet(currentValue) });
+          client.emit(
+            eventId,
+            { value: queryData(query, parseGet(currentValue)) }
+          );
         }
 
         // setup subscription
         const putCb = async (key, value) => {
           const ignore = !watchEntireBucket && key !== keyToSubscribe;
           if (ignore) return;
-          client.emit(eventId, { action: 'put', key, value: parseGet(value) });
+          client.emit(
+            eventId,
+            { action: 'put', key, value: queryData(query, parseGet(value)) }
+          );
         };
         const delCb = async (key) => {
           const ignore = !watchEntireBucket && key !== keyToSubscribe;
