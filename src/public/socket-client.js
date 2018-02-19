@@ -69,14 +69,10 @@ export default class Socket {
 
   subscribe(params, subscriber, onSubscribeReady) {
     const { socket } = this;
-    const { bucket, key } = params;
     if (typeof key === 'undefined') {
       return this.subscribeBucket(params, subscriber);
     }
-    socket.emit('subscribe', {
-      bucket,
-      key
-    }, (eventId) => {
+    socket.emit('subscribe', params, (eventId) => {
       socket.on(eventId, subscriber);
       // user eventId to remove listener later
       onSubscribeReady

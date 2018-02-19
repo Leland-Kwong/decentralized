@@ -1,4 +1,4 @@
-// TODO: add offline support by building up a log of changes to apply to server. Also cache results to web storage.
+// TODO: add offline support by building up a log of changes to apply to server. Also cache responses to web storage.
 
 import React, { Component } from 'react';
 import { render } from 'react-dom';
@@ -158,36 +158,14 @@ function startApp() {
     handleStart = () => {
       sockClient.subscribe({
         bucket: 'leland.chat',
-        key: 'message'
+        key: 'messageText'
       }, ({ value, error }) => {
         if (value) {
-          this.setState({ message: value.message });
+          this.setState({ message: value });
         } else if (error) {
           console.log(error);
         }
       });
-
-      let count = 0;
-      let items = [];
-      sockClient.forEach(
-        {
-          bucket: '_oplog',
-          // limit: 10,
-          values: false,
-          // reverse: true,
-          // gt: new Date('2018-02-17T00:00:00.000Z').getTime(),
-          // lt: new Date('2018-02-18T00:00:00.000Z').getTime()
-        },
-        (data, i) => {
-          if (i === 0) {
-            items = [];
-          }
-          count = i + 1;
-          items.push(data);
-          // console.log(data);
-        },
-        () => console.log({ count, items })
-      );
 
       sockClient.get({
         bucket: 'leland.chat',
@@ -215,14 +193,17 @@ function startApp() {
       sockClient.subscribe({
         bucket: '_oplog',
         limit: 1,
-        // reverse: true,
-        values: false,
+        reverse: true,
+        initialValue: false
+        // values: false,
       }, (data) => {
-        console.log(data.value);
+        console.log(data);
       });
     }
 
     setMessage(value) {
+      this.setState({ message: value });
+
       sockClient.patch({
         bucket: 'leland.chat',
         key: 'message',
@@ -235,8 +216,11 @@ function startApp() {
         ]
       }).catch(err => console.error(err));
 
-      this.setState({ message: value });
-
+      sockClient.put({
+        bucket: 'leland.chat',
+        key: 'messageText',
+        value
+      }).catch(err => console.error(err));
       // put({
       //   bucket: 'leland.chat',
       //   key: 'message1',
@@ -306,7 +290,9 @@ function startApp() {
     componentDidMount() {
       if (this.state.loggedIn) {
         const { expiresAt } = session.get();
-        scheduleTokenRefresh({ expiresAt }, this.updateSessionInfo);
+        scheduleTokenRefresh({
+          expiresAt,
+        }, this.updateSessionInfo);
       }
     }
 

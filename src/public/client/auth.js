@@ -81,8 +81,12 @@ export const scheduleTokenRefresh = ({
       refreshTokenTimer = null;
       getRefreshToken()
         .then((fullToken) => {
-          scheduleTokenRefresh({ expiresAt: fullToken.expiresAt });
-          onRefresh(fullToken);
+          scheduleTokenRefresh({
+            expiresAt: fullToken.expiresAt,
+            refreshRate
+          }, onRefresh);
+          onRefresh
+            && onRefresh(fullToken);
         })
         .catch(err => console.error(err));
     }, delay);

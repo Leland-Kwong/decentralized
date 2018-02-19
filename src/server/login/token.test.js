@@ -80,7 +80,7 @@ it('verifies auth token', async () => {
   const { tokenId } = await createToken({ expiresAt: new Date().getTime() + 10 });
   const verifyResult = await verify(tokenId);
   describe('is valid on create', () => {
-    expect(verifyResult.ok).toBeTruthy();
+    expect(verifyResult).toBe(true);
   });
 });
 

@@ -1,4 +1,6 @@
 // TODO: add syncing support. Syncing works by syncing the db files #mvp
+// TODO: user permissions #mvp
+// TODO: user management #enhancement
 // TODO: add file upload support #enhancement
 // TODO: add support for *key* filtering to `db.on`. Right now, each subscription function gets called whenever the database changes. #performance
 // TODO: add support for server-side functions #enhancement

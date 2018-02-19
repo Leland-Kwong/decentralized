@@ -98,17 +98,17 @@ const Token = {
     return true;
   },
   async refresh(tokenId, expiresAt = defaultExpiresAt()) {
-    const verifyResult = await Token.verify(tokenId);
-    if (!verifyResult.ok) {
-      console.log(verifyResult);
-      throw new Error({ message: verifyResult.data.message });
+    try {
+      await Token.verify(tokenId);
+      const currentToken = await Token.getByTokenId(tokenId);
+      const { userId } = currentToken;
+      const newToken = await Token.create({ userId, expiresAt });
+      // destroy previous token
+      await Token.destroy(tokenId);
+      return newToken;
+    } catch(err) {
+      throw new Error(err.message);
     }
-    const currentToken = await Token.getByTokenId(tokenId);
-    const { userId } = currentToken;
-    const newToken = await Token.create({ userId, expiresAt });
-    // destroy previous token
-    await Token.destroy(tokenId);
-    return newToken;
   }
 };
 

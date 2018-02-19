@@ -34,10 +34,7 @@ const authCheck = async (req, res, next) => {
   }
   try {
     // verify
-    const verifyResult = await Token.verify(requestToken);
-    if (!verifyResult.ok) {
-      return res.status(400).send(verifyResult.data.message);
-    }
+    await Token.verify(requestToken);
     const fullToken = await Token.getByTokenId(requestToken);
     req.user = {
       sub: fullToken.userId
