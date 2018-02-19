@@ -1,3 +1,5 @@
+const { serverApiBaseRoute } = require('./client/config');
+
 function promisifySocket() {
   let callback;
   const promise = new Promise(function (resolve, reject) {
@@ -11,8 +13,19 @@ function promisifySocket() {
 }
 
 export default class Socket {
-  constructor(socket) {
-    this.socket = socket;
+  constructor(config) {
+    const {
+      token,
+      transports = ['websocket']
+    } = config;
+    const socketClientBasePath = serverApiBaseRoute;
+    const io = require('socket.io-client');
+    this.socket = io(socketClientBasePath, {
+      query: { token },
+      secure: true,
+      // force websocket as default
+      transports
+    });
   }
 
   subscribeBucket(params, cb) {
@@ -31,7 +44,7 @@ export default class Socket {
       // TODO: add support for `range` option to limit response to range of keys
     } = params;
     socket.emit(
-      'subBucket',
+      'subscribeBucket',
       { bucket, limit, gte, gt, lte, lt, reverse, keys, values, once: !!onComplete },
       (eventId) => {
         // stream foreach style.
@@ -60,7 +73,7 @@ export default class Socket {
     if (typeof key === 'undefined') {
       return this.subscribeBucket(params, subscriber);
     }
-    socket.emit('sub', {
+    socket.emit('subscribe', {
       bucket,
       key
     }, (eventId) => {
@@ -98,6 +111,7 @@ export default class Socket {
     return callback.promise;
   }
 
+  // gets a stream then closes the observer on completion
   forEach(params, cb, onComplete) {
     const options = Object.assign({}, params, { onComplete });
     this.subscribeBucket(options, cb);

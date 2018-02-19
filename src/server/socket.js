@@ -1,13 +1,15 @@
-// TODO: add syncing support #mvp
-// TODO: add support for key filters to `db.on`. Right now, each subscription function gets called whenever the database changes.
-// TODO: add support for server-side functions
-// TODO: batch writes to be 20ops/tick?
+// TODO: add syncing support. Syncing works by syncing the db files #mvp
+// TODO: add file upload support #enhancement
+// TODO: add support for *key* filtering to `db.on`. Right now, each subscription function gets called whenever the database changes. #performance
+// TODO: add support for server-side functions #enhancement
+// TODO: batch writes to be 20ops/tick? #performance
 // TODO: watch '_data' folder and close the database if folder gets deleted
 const KV = require('./key-value-store');
-const parseData = require('./key-value-store/parse-data');
+const decodeData = require('./key-value-store/decode-data');
 const Debug = require('debug');
 const { AccessToken } = require('./login');
 const shortid = require('shortid');
+const queryData = require('./query-data');
 const Now = require('performance-now');
 const debug = {
   checkToken: Debug('evds.socket.checkToken'),
@@ -30,7 +32,7 @@ const delim = {
 };
 // parses the value based on the data type
 const parseGet = (data) => {
-  const { headers, value } = parseData(data);
+  const { headers, value } = decodeData(data);
   const type = headers[0];
   if (type === 'dbLog') {
     const [b, k, a] = headers.slice(1);
@@ -72,17 +74,17 @@ io.on('connection', (client) => {
   require('debug')('evds.connect')(client.handshake);
   client.use(async function checkToken(_, next) {
     const token = getTokenFromSocket(client);
-    const { ok, data } = await AccessToken.verify(token);
-    if (!ok) {
-      debug.checkToken(token);
-      client.emit(data.type, data.message);
+    try {
+      await AccessToken.verify(token);
+    } catch(error) {
+      client.emit(error.type, error.message);
       return next();
     }
     next();
   });
 
   const subscriptions = new Map();
-  const subscribe = async ({
+  const dbSubscribe = async ({
     bucket,
     key = '',
     limit = -1,
@@ -167,29 +169,29 @@ io.on('connection', (client) => {
     }
   };
 
-  client.on('sub', subscribe);
+  client.on('subscribe', dbSubscribe);
   // subscribe to entire bucket
-  client.on('subBucket', (params, callback) => {
-    subscribe(params, callback);
+  client.on('subscribeBucket', (params, callback) => {
+    dbSubscribe(params, callback);
   });
 
-  async function handleGet ({ bucket, key }, fn) {
+  async function dbGet ({ bucket, key, query }, fn) {
     try {
       const db = await KV(dbBasePath({ bucket }));
-      const value = await db.get(key);
-      fn({ value: parseGet(value) });
+      const value = parseGet(await db.get(key));
+      fn({ value: queryData(query, value) });
     } catch(err) {
       if (err.type === 'NotFoundError') {
         fn({ value: null });
         return;
       }
-      require('debug')('db.get')(err);
-      fn({ error: err });
+      require('debug')('evds.db.get')(err);
+      fn({ error: err.message });
     }
   }
-  client.on('get', handleGet);
+  client.on('get', dbGet);
 
-  client.on('delete', async ({ bucket, key }, fn) => {
+  const dbDelete = async ({ bucket, key }, fn) => {
     const db = await KV(dbBasePath({ bucket }));
     dbLog.addEntry({ bucket, key, actionType: 'delete' });
     const deleteEntireBucket = typeof key === 'undefined';
@@ -204,7 +206,8 @@ io.on('connection', (client) => {
       require('debug')('db.delete')(err);
       fn({ error: err });
     }
-  });
+  };
+  client.on('delete', dbDelete);
 
   // cleanup subscriptions
   client.on('disconnect', async () => {
@@ -235,9 +238,10 @@ io.on('connection', (client) => {
       fn({ error: err.message });
     }
   }
+  client.on('put', dbPut);
 
   const { applyReducer } = require('fast-json-patch');
-  client.on('patch', async (data, fn) => {
+  const dbPatch = async (data, fn) => {
     const { bucket, key, ops } = data;
     try {
       const db = await (KV(dbBasePath({ bucket })));
@@ -250,9 +254,9 @@ io.on('connection', (client) => {
       debug.patch(err);
       fn({ error: err.message });
     }
-  });
+  };
 
-  client.on('put', dbPut);
+  client.on('patch', dbPatch);
 });
 
 module.exports = (server) => {

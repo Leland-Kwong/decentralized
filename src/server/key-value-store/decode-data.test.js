@@ -1,4 +1,4 @@
-import parseData from './parse-data';
+import decodeData from './decode-data';
 import genList from 'genlist';
 
 test('parse db data', () => {
@@ -10,6 +10,6 @@ test('parse db data', () => {
     paras: genList(1, () => chance.paragraph())
   });
   const data = `${type}\n${bucket}\n\n${value}`;
-  const result = parseData(data);
+  const result = decodeData(data);
   expect(result).toEqual({ headers: [type, bucket], value });
 });

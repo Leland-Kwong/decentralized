@@ -1,5 +1,5 @@
 const DELIM = '\n';
-const parseHeaders = (data) => {
+const decodeData = (data) => {
   const headers = [];
   let i = -1;
   let startIndex = 0;
@@ -20,6 +20,11 @@ const parseHeaders = (data) => {
       };
     }
   }
+  // default to returning the raw value
+  return {
+    headers,
+    value: data
+  };
 };
 
-module.exports = parseHeaders;
+module.exports = decodeData;

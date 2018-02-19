@@ -1,5 +1,4 @@
 // TODO: add token blacklisting
-// TODO: watch for changes to sessions collection so that if we make changes directly to the collection, we can invalidate the cache as necessary.
 
 const crypto = require('crypto');
 const ms = require('ms');
@@ -18,9 +17,8 @@ const cache = require('lru-cache')({ max: 100000 });
 const db = {
   async add(token) {
     const { tokenId, userId, expiresAt } = token;
-    const fullToken = { _id: tokenId, userId, expiresAt };
+    const fullToken = { tokenId, userId, expiresAt };
 
-    // TODO: add to actual database also
     try {
       (await sessionsDb())
         .put(tokenId, fullToken);
@@ -39,12 +37,7 @@ const db = {
     try {
       const db = await sessionsDb();
       const fromDb = await db.get(tokenId);
-      if (fromDb) {
-        Object.defineProperty(fromDb, 'tokenId', {
-          value: tokenId
-        });
-        return fromDb;
-      }
+      return fromDb;
     } catch(err) {
       if (err.type === 'NotFoundError') {
         return null;
@@ -68,7 +61,7 @@ const defaultExpiresAt = () => TimeMS() + ms('24h');
 
 function TokenError(message) {
   this.message = message;
-  this.name = 'SessionError';
+  this.name = 'TokenError';
 }
 
 const Token = {
@@ -97,26 +90,12 @@ const Token = {
     const time = TimeMS();
     const hasExpired = token && (token.expiresAt < time);
     if (hasExpired) {
-      return {
-        ok: 0,
-        data: {
-          type: 'TokenError',
-          message: 'token expired'
-        }
-      };
+      throw new TokenError('token expired');
     }
     if (!token) {
-      return {
-        ok: 0,
-        data: {
-          type: 'TokenError',
-          message: 'token not found'
-        }
-      };
+      throw new TokenError('token not found');
     }
-    return {
-      ok: 1
-    };
+    return true;
   },
   async refresh(tokenId, expiresAt = defaultExpiresAt()) {
     const verifyResult = await Token.verify(tokenId);

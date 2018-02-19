@@ -48,7 +48,7 @@ const getRefreshToken = () => {
 export const scheduleTokenRefresh = ({
   expiresAt,
   refreshRate = defaults.tokenRefreshRate
-}) => {
+}, onRefresh) => {
   if (refreshTokenTimer) {
     return;
   }
@@ -80,7 +80,10 @@ export const scheduleTokenRefresh = ({
     refreshTokenTimer = setTimeout(() => {
       refreshTokenTimer = null;
       getRefreshToken()
-        .then(scheduleTokenRefresh)
+        .then((fullToken) => {
+          scheduleTokenRefresh({ expiresAt: fullToken.expiresAt });
+          onRefresh(fullToken);
+        })
         .catch(err => console.error(err));
     }, delay);
   } else {

@@ -2,7 +2,7 @@ const { destroy } = require('./token');
 const cors = require('cors');
 
 module.exports = (app) => {
-  app.options('/api/logout/', cors({ methods: ['POST'] }));
+  app.options('/api/logout/:token', cors({ methods: ['POST'] }));
   app.post('/api/logout/:token', async (req, res) => {
     const { token: tokenId } = req.params;
     try {

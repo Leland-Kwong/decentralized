@@ -103,22 +103,14 @@ function startApp() {
     }
 
     componentDidMount() {
-      const { token, onLogout } = this.props;
-      const socketClientBasePath = `${serverApiBaseRoute}`;
-      const io = require('socket.io-client');
-      const socket = io(socketClientBasePath, {
-        query: { token },
-        secure: true,
-        // force websocket as default
-        transports: ['websocket']
-      });
-      sockClient = new Socket(socket);
-      socket
+      const { token } = this.props;
+      sockClient = new Socket({ token });
+      sockClient.socket
         .on('connect', this.handleStart)
         .on('disconnect', this.handleDisconnect)
         .on('TokenError', (error) => {
           console.log(error);
-          onLogout();
+          this.handleLogout();
         })
         .on('error', (err) => {
           console.error('error', err);
@@ -182,24 +174,39 @@ function startApp() {
           bucket: '_oplog',
           // limit: 10,
           values: false,
-          // lt: 1518908195449
-          gt: new Date('2018-02-17T00:00:00.000Z').getTime(),
-          lt: new Date('2018-02-18T00:00:00.000Z').getTime()
+          // reverse: true,
+          // gt: new Date('2018-02-17T00:00:00.000Z').getTime(),
+          // lt: new Date('2018-02-18T00:00:00.000Z').getTime()
         },
         (data, i) => {
           if (i === 0) {
             items = [];
           }
-          count = i;
+          count = i + 1;
           items.push(data);
           // console.log(data);
         },
-        () => console.log({ count, lastItem: items.slice(-1)[0] })
+        () => console.log({ count, items })
       );
 
       sockClient.get({
         bucket: 'leland.chat',
-        key: 'message'
+        key: 'message',
+        query: {
+          document: /* GraphQL */`
+            {
+              itemCount: foo {
+                length: list(length: true)
+              }
+              partialList: foo {
+                list(slice: $slice)
+              }
+            }
+          `,
+          variables: {
+            slice: [-1]
+          }
+        }
       }).catch(err => console.log(err))
         .then(value => {
           console.log('get', value);
@@ -209,16 +216,7 @@ function startApp() {
         bucket: '_oplog',
         limit: 1,
         // reverse: true,
-        // keys: false,
-      }, (data) => {
-        console.log(data);
-      });
-
-      sockClient.subscribe({
-        bucket: '_oplog',
-        limit: 1,
-        reverse: true,
-        keys: false,
+        values: false,
       }, (data) => {
         console.log(data.value);
       });
@@ -231,8 +229,9 @@ function startApp() {
         ops: [
           { op: 'replace', path: '/message', value },
           // { op: 'add', path: '/foo', value: {} },
-          // { op: 'add', path: '/foo/list', value: ['bar', 'none', 'ok'] },
-          { op: 'remove', path: '/foo/list/0' },
+          // { op: 'add', path: '/foo/list/3', value: 'blah' },
+          // { op: 'move', from: '/foo/list/1', path: '/foo/list/0' }
+          // { op: 'replace', path: '/foo/list', value: ['bar', 'none', 'ok'] },
         ]
       }).catch(err => console.error(err));
 
@@ -250,7 +249,6 @@ function startApp() {
     handleLogout = () => {
       const token = session.get().accessToken;
       session.end();
-      this.setState({ loggedIn: false });
       fetch(`${apiBaseRoute}/logout/${token}`, {
         method: 'POST',
         headers: {
@@ -259,6 +257,7 @@ function startApp() {
       }).catch(err => console.error(err))
         .then(res => console.log(res));
       sockClient.close();
+      this.props.onLogout();
     }
 
     render() {
@@ -300,13 +299,14 @@ function startApp() {
   class App extends Component {
     state = {
       loggedIn: session.get().accessToken || false,
-      token: session.get().accessToken
+      token: session.get().accessToken,
+      sessionInfo: session.get()
     }
 
     componentDidMount() {
       if (this.state.loggedIn) {
         const { expiresAt } = session.get();
-        scheduleTokenRefresh({ expiresAt });
+        scheduleTokenRefresh({ expiresAt }, this.updateSessionInfo);
       }
     }
 
@@ -316,7 +316,17 @@ function startApp() {
         token
       });
       const { expiresAt } = session.get();
-      scheduleTokenRefresh({ expiresAt });
+      scheduleTokenRefresh({ expiresAt }, this.updateSessionInfo);
+    }
+
+    handleLogout = () => {
+      this.setState({ loggedIn: false });
+    }
+
+    updateSessionInfo = (session) => {
+      this.setState({
+        sessionInfo: session
+      });
     }
 
     render() {
@@ -331,7 +341,11 @@ function startApp() {
         <div>
           <Example
             token={this.state.token}
+            onLogout={this.handleLogout}
           />
+          <pre><code>
+            {JSON.stringify(this.state.sessionInfo, null, 2)}
+          </code></pre>
         </div>
       );
     }
