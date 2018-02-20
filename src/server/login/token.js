@@ -76,8 +76,12 @@ const Token = {
     const tokenId = crypto.randomBytes(12)
       .toString('hex');
     const token = { tokenId, userId, expiresAt };
-    await db.add(token);
-    return token;
+    try {
+      await db.add(token);
+      return token;
+    } catch(err) {
+      throw new TokenError(err.msg);
+    }
   },
   async getByTokenId(tokenId) {
     return await db.get(tokenId);

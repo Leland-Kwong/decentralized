@@ -41,7 +41,8 @@
     "react-dom": "^16.2.0",
     "request": "^2.83.0",
     "shortid": "^2.2.8",
-    "socket.io": "^2.0.4"
+    "socket.io": "^2.0.4",
+    "tiny-emitter": "^2.0.2"
   },
   "devDependencies": {
     "babel-eslint": "^8.1.2",

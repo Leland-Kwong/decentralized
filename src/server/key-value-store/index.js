@@ -83,9 +83,15 @@ KV.prototype.iterator = require('./iterator');
 const init = (rootDir, options = {}) => {
   const fromCache = dbsCache.get(rootDir);
   if (fromCache) {
-    return fromCache;
+    return fromCache.then(db => {
+      if (db.isClosed()) {
+        return init(rootDir, options);
+      }
+      return db;
+    });
   }
   const dbPromise = new Promise(async (resolve, reject) => {
+    // recursively setup directory
     try {
       await fs.ensureDir(rootDir);
     } catch(err) {

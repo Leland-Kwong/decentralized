@@ -103,14 +103,19 @@ io.on('connection', (client) => {
     // do things like `forEach` once.
     once = false,
     query
-  }, callback) => {
-    // a unique eventId for each subscription
-    const eventId = shortid.generate();
-    callback(eventId);
-
-    const db = await KV(dbBasePath({ bucket }));
+  }, ack) => {
     const keyToSubscribe = key;
     const watchEntireBucket = key === '';
+    // a unique eventId for each subscription
+    const eventId = shortid.generate();
+    let db;
+
+    try {
+      db = await KV(dbBasePath({ bucket }));
+      ack(eventId);
+    } catch(err) {
+      return ack({ error: err.message });
+    }
 
     // watch entire bucket
     if (watchEntireBucket) {
@@ -184,11 +189,16 @@ io.on('connection', (client) => {
     dbSubscribe(params, callback);
   });
 
-  async function dbGet ({ bucket, key, query }, fn) {
+  async function dbGet ({ bucket, key, query, _ol: offlineEnabled }, fn) {
     try {
       const db = await KV(dbBasePath({ bucket }));
       const value = parseGet(await db.get(key));
-      fn({ value: queryData(query, value) });
+      const response = {
+        value: offlineEnabled
+          ? value // send entire payload for client-side can cache
+          : queryData(query, value)
+      };
+      fn(response);
     } catch(err) {
       if (err.type === 'NotFoundError') {
         fn({ value: null });

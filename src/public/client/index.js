@@ -104,7 +104,7 @@ function startApp() {
 
     componentDidMount() {
       const { token } = this.props;
-      sockClient = new Socket({ token });
+      sockClient = new Socket({ token, enableOffline: true });
       sockClient.socket
         .on('disconnect', this.handleDisconnect)
         .on('TokenError', (error) => {
@@ -167,15 +167,15 @@ function startApp() {
         }
       });
 
-      sockClient.subscribe({
-        bucket: 'leland.chat',
-        key: 'message',
-        query: /* GraphQL */`
-          { message }
-        `
-      }, ({ value }) => {
-        console.log('query', value);
-      });
+      // sockClient.subscribe({
+      //   bucket: 'leland.chat',
+      //   key: 'message',
+      //   query: /* GraphQL */`
+      //     { message }
+      //   `
+      // }, ({ value }) => {
+      //   console.log('query', value);
+      // });
 
       sockClient.get({
         bucket: 'leland.chat',
@@ -200,15 +200,15 @@ function startApp() {
           console.log('get', value);
         });
 
-      sockClient.subscribe({
-        bucket: '_oplog',
-        limit: 1,
-        reverse: true,
-        initialValue: false
-        // values: false,
-      }, (data) => {
-        console.log(data);
-      });
+      // sockClient.subscribe({
+      //   bucket: '_oplog',
+      //   limit: 1,
+      //   reverse: true,
+      //   initialValue: false
+      //   // values: false,
+      // }, (data) => {
+      //   console.log(data);
+      // });
     }
 
     setMessage(value) {
