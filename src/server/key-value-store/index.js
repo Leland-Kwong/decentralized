@@ -5,10 +5,12 @@ const LevelUp = require('levelup');
 const leveldown = require('leveldown');
 const encode = require('encoding-down');
 const fs = require('fs-extra');
+
 const dbsCache = require('lru-cache')({
   max: 100,
   dispose: (key, val) => {
-    val.close();
+    val.then(db => db.close())
+      .catch(console.error);
   }
 });
 
@@ -71,27 +73,33 @@ KV.prototype.hasKey = function(key) {
 
 KV.prototype.iterator = require('./iterator');
 
-const init = async (rootDir, options = {}) => {
+/*
+  NOTE: the initialization is done asynchronously, but in order to do proper
+  caching of opened dbs, we must do all the async work inside a promise and
+  return the promise immediately. This way, if another request for db
+  initialization happens before ther previous request has finished, we can
+  return the in-flight request.
+ */
+const init = (rootDir, options = {}) => {
   const fromCache = dbsCache.get(rootDir);
-  if (fromCache && !fromCache.isClosed()) {
+  if (fromCache) {
     return fromCache;
   }
-  try {
-    await fs.ensureDir(rootDir);
-  } catch(err) {
-    console.log(err);
-  }
-  const dataDb = encode(
-    leveldown(rootDir),
-    options.encoding || {}
-  );
-  const dataLevel = new KV(dataDb, rootDir);
-  await new Promise(resolve => {
-    dataLevel.on('open', resolve);
+  const dbPromise = new Promise(async (resolve, reject) => {
+    try {
+      await fs.ensureDir(rootDir);
+    } catch(err) {
+      return reject(err);
+    }
+    const dataDb = encode(
+      leveldown(rootDir),
+      options.encoding || {}
+    );
+    const dataLevel = new KV(dataDb, rootDir);
+    dataLevel.on('open', () => resolve(dataLevel));
   });
-
-  dbsCache.set(rootDir, dataLevel);
-  return dataLevel;
+  dbsCache.set(rootDir, dbPromise);
+  return dbPromise;
 };
 
 module.exports = init;
