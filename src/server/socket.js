@@ -125,7 +125,8 @@ io.on('connection', (client) => {
       return ack({ error: err.message });
     }
 
-    const checkRange = require('./api/check-key-range');
+    const checkRange = require('./../isomorphic/check-key-range');
+    const isInRange = checkRange(gt, gte, lt, lte);
     // watch entire bucket
     if (watchEntireBucket) {
       const bucketStream = (actionType) => (changeKey) => {
@@ -133,8 +134,7 @@ io.on('connection', (client) => {
         const doneFrame = { done: 1 };
 
         if (actionType === 'del') {
-          const inRange = checkRange(gt, gte, lt, lte, changeKey);
-          if (!inRange) {
+          if (!isInRange(changeKey)) {
             return;
           }
           client.emit(eventId, { key: changeKey, action: 'del' });
@@ -143,7 +143,12 @@ io.on('connection', (client) => {
         }
 
         const options = enableOffline
-          ? {} // ignore options for offline mode so we can grab everything
+          /*
+            Only allow only options for offline mode that don't mutate the
+            result set. This is important because offline mode needs the
+            entire set for local database storage.
+           */
+          ? { reverse }
           : { limit, reverse, keys, values, gt, lt, gte, lte };
         // only one change happened, so lets limit the data to the one key
         if (changeKey) {

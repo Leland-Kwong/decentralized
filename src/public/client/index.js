@@ -217,11 +217,15 @@ function startApp() {
 
       sockClient.subscribe({
         bucket: 'leland.list',
+        limit: 3,
         reverse: true
       }, (data) => {
-        console.log(data);
         const items = this.state.items;
-        this.state.items[data.key] = data.value;
+        if (data.action === 'del') {
+          delete items[data.key];
+        } else {
+          items[data.key] = data.value;
+        }
         this.setState({ items });
       });
     }
@@ -329,6 +333,7 @@ function startApp() {
                 value={this.state.message}
               />
             </form>
+            {/* List - testing iteration of a bucket */}
             <ul>
               {Object.keys(this.state.items).sort().map((key) => {
                 const v = this.state.items[key];

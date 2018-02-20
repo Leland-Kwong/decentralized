@@ -2,6 +2,7 @@ import localForage from 'localforage';
 import Emitter from 'tiny-emitter';
 import queryData from '../isomorphic/query-data';
 import { applyReducer } from 'fast-json-patch';
+import checkRange from '../isomorphic/check-key-range';
 const { serverApiBaseRoute } = require('./client/config');
 
 const bucketsToIgnore = {
@@ -46,10 +47,10 @@ function getFromLocalDb(bucket, key) {
   });
 }
 
-function getBucketFromLocalDb(bucket, cb) {
-  const instance = getInstance(bucket);
-  return instance.iterate(cb);
-}
+// function getBucketFromLocalDb(bucket, cb) {
+//   const instance = getInstance(bucket);
+//   return instance.iterate(cb);
+// }
 
 // local operations to cache during network outage
 const localOpLog = localForage.createInstance({
@@ -96,15 +97,6 @@ class OfflineEmitter {
     this.emitter.emit(this.eventName(bucket, key), data);
   }
 }
-
-const iterateListFromServer = (list, options, cb) => {
-  // TODO: add support for all iteration options for offline iteration
-  let _list = list;
-  if (options.reverse) {
-    _list = list.reverse();
-  }
-  _list.forEach(cb);
-};
 
 export default class Socket {
   constructor(config) {
@@ -156,13 +148,12 @@ export default class Socket {
         enableOffline: this.enableOffline, initialValue, once: !!onComplete
       },
       (eventId) => {
-        let items = null;
+        // TODO: handle situation where an item is added to the list and outside of the options boundaries. Currently the item shows up no matter what. #mvp
+        const isInRange = checkRange(gt, gte, lt, lte);
+        let count = 0;
         const fn = (data) => {
           if (data.done) {
-            if (this.enableOffline) {
-              iterateListFromServer(items, params, cb);
-            }
-            items = null;
+            count = 0;
             if (onComplete) {
               // stream foreach style.
               // streams results until completed, then removes listener on server
@@ -171,12 +162,12 @@ export default class Socket {
             }
             return;
           }
-          // we'll do local iteration for offline mode since offline mode
-          // returns the entire dataset and ignores all options
+          count++;
+          // we'll do option filtering locally for offline mode since
+          // offline mode returns the entire dataset
           if (this.enableOffline) {
-            items = items || [];
-            items.push(data);
-            return;
+            if (count >= limit) return;
+            if (!isInRange(data.key)) return;
           }
           cb(data);
         };
@@ -238,12 +229,12 @@ export default class Socket {
     if (!_syncing) {
       const logPromise = logAction({ action: 'put', bucket, key, value }, socket);
       if (!this.isConnected()) {
-        this.offlineEmitter.emit(bucket, key, { value });
+        this.offlineEmitter.emit(bucket, key, { value, action: 'put' });
         return logPromise;
       }
     }
 
-    const callback = cb || this.promisifySocket('put', params);
+    const callback = this.promisifySocket('put', params, cb);
     socket.emit('put', { bucket, key, value }, callback);
     return callback.promise;
   }
@@ -258,12 +249,12 @@ export default class Socket {
       const entry = { action: 'patch', bucket, key, value: data };
       const logPromise = logAction(entry, socket);
       if (!this.isConnected()) {
-        this.offlineEmitter.emit(bucket, key, { value: data });
+        this.offlineEmitter.emit(bucket, key, { value: data, action: 'patch' });
         return logPromise;
       }
     }
 
-    const callback = cb || this.promisifySocket('patch', params);
+    const callback = this.promisifySocket('patch', params, cb);
     /*
       NOTE: send data pre-stringified so we don't have to stringify it again for
       the oplog.
@@ -276,7 +267,7 @@ export default class Socket {
   // gets the value once
   get(params, cb) {
     const { socket } = this;
-    const callback = cb || this.promisifySocket('get', params);
+    const callback = this.promisifySocket('get', params, cb);
     if (this.enableOffline) {
       params._ol = 1;
     }
@@ -297,12 +288,12 @@ export default class Socket {
     if (!params._syncing) {
       const logPromise = logAction({ action: 'del', bucket, key }, socket);
       if (!this.isConnected()) {
-        this.offlineEmitter.emit(bucket, key);
+        this.offlineEmitter.emit(bucket, key, { action: 'del' });
         return logPromise;
       }
     }
 
-    const callback = cb || this.promisifySocket('del', params);
+    const callback = this.promisifySocket('del', params, cb);
     socket.emit('delete', { bucket, key }, callback);
     return callback.promise;
   }
@@ -327,7 +318,12 @@ export default class Socket {
     return cb;
   }
 
-  promisifySocket(actionType, params = {}) {
+  promisifySocket(
+    actionType,
+    params = {},
+    // TODO: add support for callbackFn to invoke instead of promise
+    // cb
+  ) {
     let promisifiedCallback;
     let fulfilled = false;
     const { bucket, key, query } = params;
