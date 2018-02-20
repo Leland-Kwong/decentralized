@@ -5,6 +5,7 @@ import { render } from 'react-dom';
 import Socket from '../socket-client';
 import { requestAccessToken, scheduleTokenRefresh } from './auth';
 import session from './session';
+import Input from '../../examples/Input';
 
 const $App = document.querySelector('#App');
 const { serverApiBaseRoute } = require('./config');
@@ -99,6 +100,7 @@ function startApp() {
     state = {
       message: '',
       output: '',
+      items: [],
       notification: null
     }
 
@@ -202,13 +204,26 @@ function startApp() {
 
       // sockClient.subscribe({
       //   bucket: '_oplog',
-      //   limit: 1,
-      //   reverse: true,
-      //   initialValue: false
+      //   limit: 5,
+      //   query: /* GraphQL */`
+      //     { b v }
+      //   `
+      //   // reverse: true,
+      //   // initialValue: false
       //   // values: false,
       // }, (data) => {
       //   console.log(data);
       // });
+
+      sockClient.subscribe({
+        bucket: 'leland.list',
+        reverse: true
+      }, (data) => {
+        console.log(data);
+        const items = this.state.items;
+        this.state.items[data.key] = data.value;
+        this.setState({ items });
+      });
     }
 
     setMessage(value) {
@@ -231,13 +246,6 @@ function startApp() {
         key: 'messageText',
         value
       }).catch(err => console.error(err));
-      // put({
-      //   bucket: 'leland.chat',
-      //   key: 'message1',
-      //   value
-      // }).then(() => {
-      //   del({ bucket: 'leland.chat', key: 'message1' });
-      // });
     }
 
     handleLogout = () => {
@@ -252,6 +260,46 @@ function startApp() {
         .then(res => console.log(res));
       sockClient.close();
       this.props.onLogout();
+    }
+
+    addItem = (e) => {
+      e.preventDefault();
+      const value = this.state.message;
+      if (!value.length) {
+        return;
+      }
+      const key = Date.now();
+      const items = {
+        ...this.state.items,
+        [key]: value
+      };
+      this.setState({ items, message: '' });
+      sockClient.put({
+        bucket: 'leland.list',
+        key,
+        value
+      });
+    }
+
+    removeItem = (key) => {
+      const items = { ...this.state.items };
+      delete items[key];
+      this.setState({ items });
+      sockClient.del({
+        bucket: 'leland.list',
+        key
+      });
+    }
+
+    updateItem = (key, value) => {
+      const { items } = this.state;
+      sockClient.put({
+        bucket: 'leland.list',
+        key,
+        value
+      });
+      items[key] = value;
+      this.setState({ items });
     }
 
     render() {
@@ -272,18 +320,37 @@ function startApp() {
             </button>
           </section>
           <section>
-            <div>
+            <form onSubmit={this.addItem}>
               <label htmlFor="name" className="f6 b db mb2">Name <span className="normal black-60">(optional)</span></label>
-              <input
-                type="text"
-                id="Input"
-                className="input-reset ba b--black-20 pa2 mb2 db w-100"
+              <Input
                 placeholder="Enter a message..."
                 autoFocus
                 onInput={(e) => this.setMessage(e.target.value)}
                 value={this.state.message}
               />
-            </div>
+            </form>
+            <ul>
+              {Object.keys(this.state.items).sort().map((key) => {
+                const v = this.state.items[key];
+                return (
+                  <li
+                    key={key}
+                    className='bt b--dark-gray pa2'
+                  >
+                    <div>
+                      <Input
+                        onChange={e => this.updateItem(key, e.target.value)}
+                        value={v}
+                      />
+                    </div>
+                    <div>key: {key}</div>
+                    <button
+                      onClick={() => this.removeItem(key)}
+                    >delete</button>
+                  </li>
+                );
+              })}
+            </ul>
           </section>
         </div>
       );

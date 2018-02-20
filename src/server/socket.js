@@ -15,7 +15,8 @@ const queryData = require('../isomorphic/query-data');
 const Now = require('performance-now');
 const debug = {
   checkToken: Debug('evds.socket.checkToken'),
-  patch: Debug('evds.db.patch')
+  patch: Debug('evds.db.patch'),
+  stream: Debug('evds.db.stream')
 };
 const getTokenFromSocket = (socket) =>
   socket.handshake.query.token;
@@ -57,10 +58,16 @@ const dbLog = {
   },
 };
 
-const dbStreamHandler = (keys, values, query, cb) => {
+const handleDbResponse = (query, value, ignoreQuery) => (
+  ignoreQuery
+    ? value
+    : queryData(query, parseGet(value))
+);
+
+const dbStreamHandler = (keys, values, query, cb, enableOffline) => {
   if (keys && values) {
     return (data) => {
-      data.value = queryData(query, parseGet(data.value));
+      data.value = handleDbResponse(query, parseGet(data.value), enableOffline);
       cb(data);
     };
   }
@@ -68,7 +75,7 @@ const dbStreamHandler = (keys, values, query, cb) => {
     return (key) => cb({ key });
   }
   if (!keys) {
-    return (value) => cb({ value: queryData(query, parseGet(value)) });
+    return (value) => cb({ value: handleDbResponse(query, value, enableOffline) });
   }
 };
 
@@ -102,6 +109,7 @@ io.on('connection', (client) => {
     // the results and then emit a { done: 1 } frame. This allows the client to
     // do things like `forEach` once.
     once = false,
+    enableOffline,
     query
   }, ack) => {
     const keyToSubscribe = key;
@@ -117,40 +125,76 @@ io.on('connection', (client) => {
       return ack({ error: err.message });
     }
 
+    const checkRange = require('./api/check-key-range');
     // watch entire bucket
     if (watchEntireBucket) {
-      function bucketStream() {
-        const options = { limit, reverse, keys, values, gt, lt, gte, lte };
+      const bucketStream = (actionType) => (changeKey) => {
+
+        const doneFrame = { done: 1 };
+
+        if (actionType === 'del') {
+          const inRange = checkRange(gt, gte, lt, lte, changeKey);
+          if (!inRange) {
+            return;
+          }
+          client.emit(eventId, { key: changeKey, action: 'del' });
+          client.emit(eventId, doneFrame);
+          return;
+        }
+
+        const options = enableOffline
+          ? {} // ignore options for offline mode so we can grab everything
+          : { limit, reverse, keys, values, gt, lt, gte, lte };
+        // only one change happened, so lets limit the data to the one key
+        if (changeKey) {
+          options.limit = 1;
+          options.gte = changeKey;
+          options.lte = changeKey;
+        }
         const stream = db.createReadStream(options);
-        const onDataCallback = (data) => client.emit(eventId, data);
-        stream.on('data', dbStreamHandler(keys, values, query, onDataCallback));
+        const onDataCallback = (data) => {
+          if (actionType) {
+            data.action = actionType;
+          }
+          client.emit(eventId, data);
+        };
+        stream.on(
+          'data',
+          dbStreamHandler(keys, values, query, onDataCallback, enableOffline)
+        );
         stream.on('error', (error) => {
           client.emit(eventId, { error: error.message });
         });
-        if (once) {
-          stream.on('end', () => client.emit(eventId, { done: 1 }));
-        }
-      }
+        stream.on('end', () => client.emit(eventId, doneFrame));
+      };
 
       if (initialValue) {
-        bucketStream();
+        bucketStream()();
       }
 
       if (once) {
         return;
       }
 
-      db.on('put', bucketStream);
-      db.on('del', bucketStream);
+      db.on('put', bucketStream('put'));
+      db.on('del', bucketStream('del'));
+      subscriptions.set(eventId, function cleanup() {
+        db.removeListener('put', bucketStream);
+        db.removeListener('del', bucketStream);
+      });
     } else {
       try {
         if (initialValue) {
-          // emit initial value
-          const currentValue = await db.get(key);
-          client.emit(
-            eventId,
-            { value: queryData(query, parseGet(currentValue)) }
-          );
+          try {
+            // emit initial value
+            const currentValue = await db.get(key);
+            client.emit(
+              eventId,
+              { value: handleDbResponse(query, currentValue) }
+            );
+          } catch(err) {
+            debug.stream(err.message);
+          }
         }
 
         // setup subscription

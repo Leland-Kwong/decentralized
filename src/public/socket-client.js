@@ -4,11 +4,15 @@ import queryData from '../isomorphic/query-data';
 import { applyReducer } from 'fast-json-patch';
 const { serverApiBaseRoute } = require('./client/config');
 
+const bucketsToIgnore = {
+  // _oplog: true,
+  _sessions: true
+};
+
 const noop = () => {};
 let debug = () => noop;
 if (process.env.NODE_ENV === 'dev') {
   debug = require('debug');
-  localStorage.debug = 'lucidbyte.*';
 }
 
 const localDbError = debug('lucidbyte.localDbError');
@@ -17,25 +21,40 @@ const getInstance = (bucket) => {
   return localForage.createInstance(config);
 };
 function persistToLocalDb(bucket, key, value, action) {
-  // debug('lucidbyte.cacheData')({ bucket, key, value, action });
   const instance = getInstance(bucket);
+  // db only allows strings as keys
+  const keyAsString = key + '';
+
+  debug('lucidbyte.cacheData')({ bucket, key, value, action });
+  debug('lucidbyte.cacheData.key')(keyAsString);
 
   if (action === 'del') {
-    return instance.removeItem(key);
+    return instance.removeItem(keyAsString);
   }
-  return instance.setItem(key, value)
+  return instance.setItem(keyAsString, value)
     .catch(localDbError);
 }
 
 function getFromLocalDb(bucket, key) {
   const instance = getInstance(bucket);
-  return instance.getItem(key)
-    .catch(localDbError);
+  // NOTE: returns `null` if no value exists
+  return instance.getItem(key).then(v => {
+    if (null === v) {
+      return Promise.reject(null);
+    }
+    return v;
+  });
 }
 
+function getBucketFromLocalDb(bucket, cb) {
+  const instance = getInstance(bucket);
+  return instance.iterate(cb);
+}
+
+// local operations to cache during network outage
 const localOpLog = localForage.createInstance({
-  name: '_opLog',
-  dataStore: 'evds'
+  name: 'lucidbyte',
+  storeName: '_opLog'
 });
 
 /*
@@ -78,6 +97,15 @@ class OfflineEmitter {
   }
 }
 
+const iterateListFromServer = (list, options, cb) => {
+  // TODO: add support for all iteration options for offline iteration
+  let _list = list;
+  if (options.reverse) {
+    _list = list.reverse();
+  }
+  _list.forEach(cb);
+};
+
 export default class Socket {
   constructor(config) {
     const {
@@ -119,44 +147,55 @@ export default class Socket {
       keys = true,
       values = true,
       onComplete,
-      initialValue
-      // TODO: add support for `range` option to limit response to range of keys
+      initialValue,
+      query
     } = params;
     socket.emit(
       'subscribeBucket',
-      { bucket, limit, gte, gt, lte, lt, reverse, keys, values,
-        initialValue, once: !!onComplete
+      { query, bucket, limit, gte, gt, lte, lt, reverse, keys, values,
+        enableOffline: this.enableOffline, initialValue, once: !!onComplete
       },
       (eventId) => {
-        // stream foreach style.
-        // streams results until completed, then removes listener on server
-        if (onComplete) {
-          let i = 0;
-          const fn = (data) => {
-            if (data.done) {
-              socket.off(eventId, fn);
-              return onComplete();
+        let items = null;
+        const fn = (data) => {
+          if (data.done) {
+            if (this.enableOffline) {
+              iterateListFromServer(items, params, cb);
             }
-            cb(data, i);
-            i++;
-          };
-          socket.on(eventId, fn);
-        } else {
-          socket.on(eventId, cb);
-        }
-        if (this.enableOffline) {
+            items = null;
+            if (onComplete) {
+              // stream foreach style.
+              // streams results until completed, then removes listener on server
+              socket.off(eventId, fn);
+              onComplete();
+            }
+            return;
+          }
+          // we'll do local iteration for offline mode since offline mode
+          // returns the entire dataset and ignores all options
+          if (this.enableOffline) {
+            items = items || [];
+            items.push(data);
+            return;
+          }
+          cb(data);
+        };
+        socket.on(eventId, fn);
+
+        const shouldCache = this.enableOffline && !bucketsToIgnore[bucket];
+        if (shouldCache) {
           socket.on(eventId, (data) => {
-            // TODO: subscription
-            console.log(data);
-            // persistToLocalDb(bucket, data.key, data.value, data.action);
+            if (data.done) return;
+            debug('lucidbyte.subscribeBucket.offline')(data);
+            persistToLocalDb(bucket, data.key, data.value, data.action);
           });
         }
       }
     );
-    this.triggerCallbackOfflineIfNeeded(cb, params);
+    this.triggerCallbackIfOffline(cb, params);
   }
 
-  subscribeKeyValue(params, subscriber, onSubscribeReady) {
+  subscribeKey(params, subscriber, onSubscribeReady) {
     const { socket } = this;
     const { bucket, key } = params;
     socket.emit(
@@ -166,7 +205,7 @@ export default class Socket {
         socket.on(eventId, subscriber);
         if (this.enableOffline) {
           const offlineCb = (data) => {
-            debug('lucidbyte.offline.subscribeKeyValue')(data);
+            debug('lucidbyte.offline.subscribeKey')(data);
             persistToLocalDb(bucket, key, data.value, data.action);
           };
           socket.on(eventId, offlineCb);
@@ -176,7 +215,7 @@ export default class Socket {
           && onSubscribeReady(eventId, subscriber);
       }
     );
-    this.triggerCallbackOfflineIfNeeded(subscriber, params);
+    this.triggerCallbackIfOffline(subscriber, params);
   }
 
   subscribe(params, subscriber, onSubscribeReady) {
@@ -189,7 +228,7 @@ export default class Socket {
     if (typeof params.key === 'undefined') {
       return this.subscribeBucket(params, subscriber);
     }
-    this.subscribeKeyValue(params, subscriber, onSubscribeReady);
+    this.subscribeKey(params, subscriber, onSubscribeReady);
   }
 
   put(params, cb) {
@@ -272,10 +311,18 @@ export default class Socket {
     this.socket.close();
   }
 
-  triggerCallbackOfflineIfNeeded(cb, { bucket, key }) {
+  triggerCallbackIfOffline(cb, { bucket, key, query }) {
     if (!this.isConnected()) {
+      const getBucket = typeof key === 'undefined';
+      if (getBucket) {
+        // TODO: add support for iteration options for offline iteration
+        // return getBucketFromLocalDb(bucket, (value, key) => {
+        //   cb({ value: queryData(query, value), key });
+        // });
+        return;
+      }
       getFromLocalDb(bucket, key)
-        .then(value => cb({ value }));
+        .then(value => cb({ value: queryData(query, value), key }));
     }
     return cb;
   }
@@ -320,7 +367,7 @@ export default class Socket {
             }
             valueToPersist.then(v => {
               debug('lucidbyte.promisify')(actionType, bucket, key, v);
-              persistToLocalDb(bucket, key, v);
+              persistToLocalDb(bucket, key, v, actionType);
             });
           }
           resolve(valueToSend);
@@ -331,7 +378,7 @@ export default class Socket {
     if (this.enableOffline && !this.isConnected()) {
       if (actionType === 'get') {
         getFromLocalDb(bucket, key)
-          .then(value => promisifiedCallback({ value }));
+          .then(value => promisifiedCallback({ value, key }));
       }
     }
     return promisifiedCallback;
