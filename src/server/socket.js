@@ -7,11 +7,11 @@
 // TODO: batch writes to be 20ops/tick? #performance
 // TODO: watch '_data' folder and close the database if folder gets deleted
 const KV = require('./key-value-store');
+const getDbClient = require('./api/get-db');
 const Debug = require('debug');
 const { AccessToken } = require('./login');
 const shortid = require('shortid');
 const queryData = require('../isomorphic/query-data');
-const parseGet = require('./api/parse-get');
 const delim = require('./api/delim');
 const Now = require('performance-now');
 const { dbBasePath } = require('./config');
@@ -39,7 +39,8 @@ const dbLog = {
 const createSubscribeFn = require('./api/subscribe-fn.js');
 
 io.on('connection', (client) => {
-  require('debug')('evds.connect')(client.handshake);
+  require('debug')('evds.server.start.pid')(process.pid);
+  // require('debug')('evds.connect')(client.handshake);
 
   client.use(async function checkToken(_, next) {
     const token = getTokenFromSocket(client);
@@ -52,9 +53,9 @@ io.on('connection', (client) => {
     next();
   });
 
-  const subscriptions = new Map();
+  const dbSubscriptions = new Map();
 
-  const onSubscribe = createSubscribeFn(client, subscriptions);
+  const onSubscribe = createSubscribeFn(client, dbSubscriptions);
   client.on('subscribe', onSubscribe);
   // subscribe to entire bucket
   client.on('subscribeBucket', (params, callback) => {
@@ -63,8 +64,8 @@ io.on('connection', (client) => {
 
   async function dbGet ({ bucket, key, query, _ol: offlineEnabled }, fn) {
     try {
-      const db = await KV(dbBasePath({ bucket }));
-      const value = parseGet(await db.get(key));
+      const db = await getDbClient(bucket);
+      const value = await db.get(key);
       const response = {
         value: offlineEnabled
           ? value // send entire payload for client-side can cache
@@ -83,7 +84,7 @@ io.on('connection', (client) => {
   client.on('get', dbGet);
 
   const dbDelete = async ({ bucket, key }, fn) => {
-    const db = await KV(dbBasePath({ bucket }));
+    const db = await getDbClient(bucket);
     dbLog.addEntry({ bucket, key, actionType: 'delete' });
     const deleteEntireBucket = typeof key === 'undefined';
     try {
@@ -100,10 +101,16 @@ io.on('connection', (client) => {
   };
   client.on('delete', dbDelete);
 
-  // cleanup subscriptions
   client.on('disconnect', async () => {
-    [...subscriptions].forEach(([, cleanup]) => {
+    // cleanup dbSubscriptions
+    [...dbSubscriptions].forEach(([, cleanup]) => {
       cleanup();
+    });
+    dbSubscriptions.clear();
+    // cleanup socket client
+    const eventNames = client.eventNames();
+    eventNames.forEach(name => {
+      client.removeAllListeners(name);
     });
   });
 
@@ -114,8 +121,8 @@ io.on('connection', (client) => {
   const dbPatch = async (data, fn) => {
     const { bucket, key, ops } = data;
     try {
-      const db = await (KV(dbBasePath({ bucket })));
-      const curValue = parseGet(await db.get(key));
+      const db = await getDbClient(bucket);
+      const curValue = await db.get(key);
       const parsedOps = JSON.parse(ops);
       const patchResult = parsedOps.reduce(applyReducer, curValue);
       await dbPut({ bucket, key, value: patchResult, patch: ops });

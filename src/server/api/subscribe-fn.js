@@ -1,15 +1,17 @@
-const parseGet = require('./parse-get');
 const queryData = require('../../isomorphic/query-data');
 const shortid = require('shortid');
-const KV = require('../key-value-store');
-const { dbBasePath } = require('../config');
-const debug = require('debug');
+const getDbClient = require('./get-db');
+const Debug = require('debug');
+
+const debug = {
+  streamError: Debug('evds.streamError'),
+  subscribeError: Debug('evds.subscribeError')
+};
 
 const handleDbResponse = (query, value, ignoreQuery) => {
-  const parsedValue = parseGet(value);
   return ignoreQuery
-    ? parsedValue
-    : queryData(query, parsedValue);
+    ? value
+    : queryData(query, value);
 };
 
 const dbStreamHandler = (keys, values, query, cb, enableOffline) => {
@@ -55,7 +57,7 @@ module.exports = function createSubscribeFn(client, subscriptions) {
     let db;
 
     try {
-      db = await KV(dbBasePath({ bucket }));
+      db = await getDbClient(bucket);
       ack(eventId);
     } catch(err) {
       return ack({ error: err.message });
@@ -106,11 +108,13 @@ module.exports = function createSubscribeFn(client, subscriptions) {
         return;
       }
 
-      db.on('put', bucketStream('put'));
-      db.on('del', bucketStream('del'));
+      const onPutDecode = bucketStream('put');
+      db.on('putDecode', onPutDecode);
+      const onDelete = bucketStream('del');
+      db.on('del', onDelete);
       subscriptions.set(eventId, function cleanup() {
-        db.removeListener('put', bucketStream);
-        db.removeListener('del', bucketStream);
+        db.removeListener('putDecode', onPutDecode);
+        db.removeListener('del', onDelete);
       });
     } else {
       try {
@@ -123,7 +127,7 @@ module.exports = function createSubscribeFn(client, subscriptions) {
               { value: handleDbResponse(query, currentValue) }
             );
           } catch(err) {
-            debug.stream(err.message);
+            debug.streamError(err.message);
           }
         }
 
@@ -133,7 +137,7 @@ module.exports = function createSubscribeFn(client, subscriptions) {
           if (ignore) return;
           client.emit(
             eventId,
-            { action: 'put', key, value: queryData(query, parseGet(value)) }
+            { action: 'put', key, value: queryData(query, value) }
           );
         };
         const delCb = async (key) => {
@@ -142,16 +146,16 @@ module.exports = function createSubscribeFn(client, subscriptions) {
           client.emit(eventId, { action: 'del', key });
         };
         subscriptions.set(eventId, function cleanup() {
-          db.removeListener('put', putCb);
+          db.removeListener('putDecode', putCb);
           db.removeListener('del', delCb);
         });
-        db.on('put', putCb);
+        db.on('putDecode', putCb);
         db.on('del', delCb);
       } catch(err) {
         if (err.type === 'NotFoundError') {
           return;
         }
-        require('debug')('db.subscribe')(err);
+        debug.subscribeError(err);
         client.emit(eventId, { error: err.message });
       }
     }

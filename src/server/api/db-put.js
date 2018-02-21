@@ -1,5 +1,4 @@
-const KV = require('../key-value-store');
-const { dbBasePath } = require('../config');
+const getDbClient = require('./get-db');
 const delim = require('./delim');
 
 const normalizePut = (value) => {
@@ -16,7 +15,7 @@ module.exports = dbLog => async function dbPut(data, fn) {
     value,
     patch
   } = data;
-  const db = await KV(dbBasePath({ bucket }));
+  const db = await getDbClient(bucket);
   const [type, normalizedValue] = normalizePut(value);
 
   const putValue = `${type}${delim.v}${normalizedValue}`;

@@ -109,6 +109,7 @@ function startApp() {
     componentDidMount() {
       const { token } = this.props;
       sockClient = new Socket({ token, enableOffline: true });
+
       sockClient.socket
         .on('connect', this.handleStart)
         .on('disconnect', this.handleDisconnect)
@@ -122,6 +123,16 @@ function startApp() {
         .on('reconnect_attempt', this.handleReconnectAttempt)
         .on('reconnect_error', this.handleReconnectError)
         .on('reconnect', this.handleReconnect);
+
+      if (process.env.NODE_ENV === 'stressTest') {
+        const stressTest = () => {
+          new Array(300).fill(0).forEach(this.handleStart);
+          setTimeout(() => {
+            location.reload();
+          }, 1000);
+        };
+        sockClient.socket.on('connect', stressTest);
+      }
     }
 
     notify = ({ title, message }) => {
@@ -134,9 +145,6 @@ function startApp() {
     }
 
     handleReconnectAttempt = (attemptNumber) => {
-      if (!this.state.started) {
-        this.handleStart();
-      }
       this.notify({
         title: 'reconnect attempt',
         message: `reconnecting... (attempt ${attemptNumber})`
@@ -163,6 +171,9 @@ function startApp() {
     }
 
     handleStart = () => {
+      // if (this.state.started) {
+      //   return;
+      // }
       this.setState({ started: true });
 
       sockClient.subscribe({

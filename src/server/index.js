@@ -8,3 +8,8 @@ server.listen(3000);
 
 require('./rest')(app);
 require('./socket')(server);
+
+const memwatch = require('memwatch-next');
+memwatch.on('leak', (info) => {
+  console.error('Memory leak detected:\n', info);
+});

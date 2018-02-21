@@ -1,3 +1,6 @@
+// TODO: offline-mode: reiterate keys for `subscribeBucket` whenever a mutation happens #mvp
+// TODO: add support for listener removal for subscribers and offline listeners #mvp
+
 import localForage from 'localforage';
 import Emitter from 'tiny-emitter';
 import queryData from '../isomorphic/query-data';
@@ -6,7 +9,7 @@ import checkRange from '../isomorphic/check-key-range';
 const { serverApiBaseRoute } = require('./client/config');
 
 const bucketsToIgnore = {
-  // _oplog: true,
+  _oplog: true,
   _sessions: true
 };
 
@@ -47,10 +50,9 @@ function getFromLocalDb(bucket, key) {
   });
 }
 
-function getBucketFromLocalDb(bucket, iterationOptions, cb) {
+function getBucketFromLocalDb(bucket, iterationOptions, cb, onComplete) {
   const { gt, gte, lt, lte, limit, reverse } = iterationOptions;
   const keyRangeFn = checkRange(gt, gte, lt, lte);
-  console.log(iterationOptions);
   const instance = getInstance(bucket);
   const list = [];
   instance.iterate((value, key) => {
@@ -62,6 +64,7 @@ function getBucketFromLocalDb(bucket, iterationOptions, cb) {
         cb(d);
       }
     });
+    onComplete();
   });
 }
 
@@ -155,77 +158,87 @@ export default class Socket {
       query,
       once
     } = params;
+    const onSubscribeBucket = (eventId) => {
+      const isInRange = checkRange(gt, gte, lt, lte);
+      let count = 0;
+      let removeListener = null;
+      const fn = (data) => {
+        // ignore action frames
+        if (data.action) {
+          return;
+        }
+        if (data.done) {
+          count = 0;
+          if (onComplete) {
+            // stream foreach style.
+            // streams results until completed, then removes listener on server
+            if (once) {
+              removeListener();
+            }
+            onComplete();
+          }
+          return;
+        }
+        // we'll do option filtering locally for offline mode since
+        // offline mode returns the entire dataset
+        if (this.enableOffline) {
+          if (limit && count++ >= limit) return;
+          if (!isInRange(data.key)) return;
+        }
+        cb(data);
+      };
+      removeListener = () => socket.off(eventId, fn);
+      socket.on(eventId, fn);
+
+      const shouldCache = this.enableOffline && !bucketsToIgnore[bucket];
+      if (shouldCache) {
+        socket.on(eventId, (data) => {
+          if (data.done) return;
+          debug('lucidbyte.subscribeBucket.offline')(data);
+          persistToLocalDb(bucket, data.key, data.value, data.action);
+        });
+      }
+    };
     socket.emit(
       'subscribeBucket',
       { query, bucket, limit, gte, gt, lte, lt, reverse, keys, values,
         enableOffline: this.enableOffline, initialValue, once
       },
-      (eventId) => {
-        // TODO: handle situation where an item is added to the list and outside of the options boundaries. Currently the item shows up no matter what. #mvp
-        const isInRange = checkRange(gt, gte, lt, lte);
-        let count = 0;
-        const fn = (data) => {
-          // ignore action frames
-          if (data.action) {
-            return;
-          }
-          if (data.done) {
-            count = 0;
-            if (onComplete) {
-              // stream foreach style.
-              // streams results until completed, then removes listener on server
-              if (once) {
-                socket.off(eventId, fn);
-              }
-              onComplete();
-            }
-            return;
-          }
-          // we'll do option filtering locally for offline mode since
-          // offline mode returns the entire dataset
-          if (this.enableOffline) {
-            if (limit && count++ >= limit) return;
-            if (!isInRange(data.key)) return;
-          }
-          cb(data);
-        };
-        socket.on(eventId, fn);
-
-        const shouldCache = this.enableOffline && !bucketsToIgnore[bucket];
-        if (shouldCache) {
-          socket.on(eventId, (data) => {
-            if (data.done) return;
-            debug('lucidbyte.subscribeBucket.offline')(data);
-            persistToLocalDb(bucket, data.key, data.value, data.action);
-          });
-        }
-      }
+      onSubscribeBucket
     );
-    this.triggerCallbackIfOffline(cb, params);
+    socket.on('reconnect', () => {
+      socket.emit('subscribe', params, onSubscribeBucket);
+    });
+    this.triggerCallbackIfOffline(cb, params, onComplete);
   }
 
   subscribeKey(params, subscriber) {
     const { socket } = this;
     const { bucket, key } = params;
+    const onSubscribe = (eventId) => {
+      socket.on(eventId, subscriber);
+      if (this.enableOffline) {
+        const offlineCb = (data) => {
+          debug('lucidbyte.offline.subscribeKey')(data);
+          persistToLocalDb(bucket, key, data.value, data.action);
+        };
+        socket.on(eventId, offlineCb);
+      }
+    };
     socket.emit(
       'subscribe',
       params,
-      (eventId) => {
-        socket.on(eventId, subscriber);
-        if (this.enableOffline) {
-          const offlineCb = (data) => {
-            debug('lucidbyte.offline.subscribeKey')(data);
-            persistToLocalDb(bucket, key, data.value, data.action);
-          };
-          socket.on(eventId, offlineCb);
-        }
-      }
+      onSubscribe
     );
+    socket.on('reconnect', () => {
+      socket.emit('subscribe', params, onSubscribe);
+    });
     this.triggerCallbackIfOffline(subscriber, params);
   }
 
   subscribe(params, subscriber, onComplete = noop) {
     const { bucket, key } = params;
+    require('debug')('lucidbyte.subscribe')(bucket, key);
     this.offlineEmitter.on(bucket, key, (data) => {
       console.log('offline', data);
       persistToLocalDb(bucket, key, data.value);
@@ -314,14 +327,14 @@ export default class Socket {
     this.socket.close();
   }
 
-  triggerCallbackIfOffline(cb, params) {
+  triggerCallbackIfOffline(cb, params, onComplete) {
     const { bucket, key, query } = params;
     if (!this.isConnected()) {
       const getBucket = typeof key === 'undefined';
       if (getBucket) {
         return getBucketFromLocalDb(bucket, params, ({ key, value }) => {
           cb({ value: queryData(query, value), key });
-        });
+        }, onComplete);
       }
       return getFromLocalDb(bucket, key)
         .then(value => cb({ value: queryData(query, value), key }));

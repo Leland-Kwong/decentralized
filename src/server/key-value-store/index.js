@@ -22,12 +22,30 @@ function kvError({ msg, type }) {
   }
 }
 
-const onProto = LevelUp.prototype.on;
 class KV extends LevelUp {
   constructor(db, rootDir) {
     super(db);
     this.rootDir = rootDir;
+
     this.codecs = this._db.codec.opts;
+    const { decode } = this.codecs.valueEncoding;
+    let decodeListenersCount = 0;
+    this.on('newListener', (event) => {
+      if (event === 'putDecode') {
+        decodeListenersCount++;
+      }
+    });
+    this.on('removeListener', (event) => {
+      if (event === 'putDecode') {
+        decodeListenersCount--;
+      }
+    });
+    this.on('put', (k, v) => {
+      if (decodeListenersCount) {
+        const value = decode(v);
+        this.emit('putDecode', k, value);
+      }
+    });
   }
 
   async drop() {
@@ -45,18 +63,6 @@ class KV extends LevelUp {
 
   async reset() {
     return await delDir([this.rootDir], { force: true });
-  }
-
-  on(ev, cb) {
-    const { decode } = this.codecs.valueEncoding;
-    if (ev === 'put' && decode) {
-      return onProto.call(
-        this,
-        'put',
-        (k, v) => cb(k, decode(v))
-      );
-    }
-    return onProto.call(this, ev, cb);
   }
 }
 
@@ -97,7 +103,7 @@ const init = (rootDir, options = {}) => {
       options.encoding || {}
     );
     const dataLevel = new KV(dataDb, rootDir);
-    dataLevel.on('open', () => resolve(dataLevel));
+    resolve(dataLevel);
   });
   const cacheHandler = db => {
     if (db.isClosed()) {

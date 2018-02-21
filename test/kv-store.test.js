@@ -15,9 +15,10 @@ test('custom decoder', async () => {
   });
 
   const val = { foo: 'bar' };
-  db.on('put', (k, v) => {
+  const onPut = (k, v) => {
     expect(v).toEqual(val);
-  });
+  };
+  db.on('putDecode', onPut);
   await db.put('json', JSON.stringify(val));
 
   await new Promise((resolve) => {
