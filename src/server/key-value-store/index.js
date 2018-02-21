@@ -22,10 +22,12 @@ function kvError({ msg, type }) {
   }
 }
 
+const onProto = LevelUp.prototype.on;
 class KV extends LevelUp {
   constructor(db, rootDir) {
     super(db);
     this.rootDir = rootDir;
+    this.codecs = this._db.codec.opts;
   }
 
   async drop() {
@@ -45,18 +47,16 @@ class KV extends LevelUp {
     return await delDir([this.rootDir], { force: true });
   }
 
-  async update(key, updates) {
-    try {
-      const currentValue = await this.get(key);
-      const newValue = Object.assign(
-        currentValue,
-        updates
+  on(ev, cb) {
+    const { decode } = this.codecs.valueEncoding;
+    if (ev === 'put' && decode) {
+      return onProto.call(
+        this,
+        'put',
+        (k, v) => cb(k, decode(v))
       );
-      return this.put(key, newValue);
-    } catch(err) {
-      console.log(err);
-      throw new kvError({ msg: `error updating key: \`${key}\`` });
     }
+    return onProto.call(this, ev, cb);
   }
 }
 
@@ -83,12 +83,7 @@ KV.prototype.iterator = require('./iterator');
 const init = (rootDir, options = {}) => {
   const fromCache = dbsCache.get(rootDir);
   if (fromCache) {
-    return fromCache.then(db => {
-      if (db.isClosed()) {
-        return init(rootDir, options);
-      }
-      return db;
-    });
+    return fromCache();
   }
   const dbPromise = new Promise(async (resolve, reject) => {
     // recursively setup directory
@@ -104,7 +99,15 @@ const init = (rootDir, options = {}) => {
     const dataLevel = new KV(dataDb, rootDir);
     dataLevel.on('open', () => resolve(dataLevel));
   });
-  dbsCache.set(rootDir, dbPromise);
+  const cacheHandler = db => {
+    if (db.isClosed()) {
+      return init(rootDir, options);
+    }
+    return db;
+  };
+  dbsCache.set(rootDir, () => {
+    return dbPromise.then(cacheHandler);
+  });
   return dbPromise;
 };
 

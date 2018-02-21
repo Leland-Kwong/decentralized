@@ -26,8 +26,7 @@ function persistToLocalDb(bucket, key, value, action) {
   // db only allows strings as keys
   const keyAsString = key + '';
 
-  debug('lucidbyte.cacheData')({ bucket, key, value, action });
-  debug('lucidbyte.cacheData.key')(keyAsString);
+  debug('lucidbyte.cacheData')(bucket, key, value, action);
 
   if (action === 'del') {
     return instance.removeItem(keyAsString);
@@ -41,16 +40,30 @@ function getFromLocalDb(bucket, key) {
   // NOTE: returns `null` if no value exists
   return instance.getItem(key).then(v => {
     if (null === v) {
-      return Promise.reject(null);
+      const msg = `getFromLocalDb: ${bucket}/${key}`;
+      return Promise.reject(msg);
     }
     return v;
   });
 }
 
-// function getBucketFromLocalDb(bucket, cb) {
-//   const instance = getInstance(bucket);
-//   return instance.iterate(cb);
-// }
+function getBucketFromLocalDb(bucket, iterationOptions, cb) {
+  const { gt, gte, lt, lte, limit, reverse } = iterationOptions;
+  const keyRangeFn = checkRange(gt, gte, lt, lte);
+  console.log(iterationOptions);
+  const instance = getInstance(bucket);
+  const list = [];
+  instance.iterate((value, key) => {
+    list.push({ key, value });
+  }).then(() => {
+    const l = reverse ? list.reverse() : list;
+    l.slice(0, limit).forEach(d => {
+      if (keyRangeFn(d.key)) {
+        cb(d);
+      }
+    });
+  });
+}
 
 // local operations to cache during network outage
 const localOpLog = localForage.createInstance({
@@ -126,7 +139,7 @@ export default class Socket {
     return this.socket.connected;
   }
 
-  subscribeBucket(params, cb) {
+  subscribeBucket(params, cb, onComplete) {
     const { socket } = this;
     const {
       bucket,
@@ -136,37 +149,42 @@ export default class Socket {
       lt,
       gte,
       lte,
-      keys = true,
-      values = true,
-      onComplete,
+      keys,
+      values,
       initialValue,
-      query
+      query,
+      once
     } = params;
     socket.emit(
       'subscribeBucket',
       { query, bucket, limit, gte, gt, lte, lt, reverse, keys, values,
-        enableOffline: this.enableOffline, initialValue, once: !!onComplete
+        enableOffline: this.enableOffline, initialValue, once
       },
       (eventId) => {
         // TODO: handle situation where an item is added to the list and outside of the options boundaries. Currently the item shows up no matter what. #mvp
         const isInRange = checkRange(gt, gte, lt, lte);
         let count = 0;
         const fn = (data) => {
+          // ignore action frames
+          if (data.action) {
+            return;
+          }
           if (data.done) {
             count = 0;
             if (onComplete) {
               // stream foreach style.
               // streams results until completed, then removes listener on server
-              socket.off(eventId, fn);
+              if (once) {
+                socket.off(eventId, fn);
+              }
               onComplete();
             }
             return;
           }
-          count++;
           // we'll do option filtering locally for offline mode since
           // offline mode returns the entire dataset
           if (this.enableOffline) {
-            if (count >= limit) return;
+            if (limit && count++ >= limit) return;
             if (!isInRange(data.key)) return;
           }
           cb(data);
@@ -186,7 +204,7 @@ export default class Socket {
     this.triggerCallbackIfOffline(cb, params);
   }
 
-  subscribeKey(params, subscriber, onSubscribeReady) {
+  subscribeKey(params, subscriber) {
     const { socket } = this;
     const { bucket, key } = params;
     socket.emit(
@@ -201,15 +219,12 @@ export default class Socket {
           };
           socket.on(eventId, offlineCb);
         }
-        // user eventId to remove listener later
-        onSubscribeReady
-          && onSubscribeReady(eventId, subscriber);
       }
     );
     this.triggerCallbackIfOffline(subscriber, params);
   }
 
-  subscribe(params, subscriber, onSubscribeReady) {
+  subscribe(params, subscriber, onComplete = noop) {
     const { bucket, key } = params;
     this.offlineEmitter.on(bucket, key, (data) => {
       console.log('offline', data);
@@ -217,9 +232,9 @@ export default class Socket {
       subscriber(data);
     });
     if (typeof params.key === 'undefined') {
-      return this.subscribeBucket(params, subscriber);
+      return this.subscribeBucket(params, subscriber, onComplete);
     }
-    this.subscribeKey(params, subscriber, onSubscribeReady);
+    this.subscribeKey(params, subscriber);
   }
 
   put(params, cb) {
@@ -243,14 +258,17 @@ export default class Socket {
     // accepts either `value` or `ops` property as the patch
     const { bucket, key, value, ops, _syncing } = params;
     const { socket } = this;
-    const data = value || ops;
+    const patch = value || ops;
 
     if (!_syncing) {
-      const entry = { action: 'patch', bucket, key, value: data };
-      const logPromise = logAction(entry, socket);
+      const entry = { action: 'patch', bucket, key, value: patch };
+      logAction(entry, socket);
       if (!this.isConnected()) {
-        this.offlineEmitter.emit(bucket, key, { value: data, action: 'patch' });
-        return logPromise;
+        const curValue = getFromLocalDb(bucket, key);
+        return curValue.then(val => {
+          const newValue = patch.reduce(applyReducer, val);
+          this.offlineEmitter.emit(bucket, key, { value: newValue, action: 'patch' });
+        });
       }
     }
 
@@ -259,7 +277,7 @@ export default class Socket {
       NOTE: send data pre-stringified so we don't have to stringify it again for
       the oplog.
      */
-    const opsAsString = JSON.stringify(data);
+    const opsAsString = JSON.stringify(patch);
     socket.emit('patch', { bucket, key, ops: opsAsString }, callback);
     return callback.promise;
   }
@@ -273,12 +291,6 @@ export default class Socket {
     }
     socket.emit('get', params, callback);
     return callback.promise;
-  }
-
-  // gets a stream then closes the observer on completion
-  forEach(params, cb, onComplete) {
-    const options = Object.assign({}, params, { onComplete });
-    this.subscribeBucket(options, cb);
   }
 
   del(params, cb) {
@@ -302,17 +314,16 @@ export default class Socket {
     this.socket.close();
   }
 
-  triggerCallbackIfOffline(cb, { bucket, key, query }) {
+  triggerCallbackIfOffline(cb, params) {
+    const { bucket, key, query } = params;
     if (!this.isConnected()) {
       const getBucket = typeof key === 'undefined';
       if (getBucket) {
-        // TODO: add support for iteration options for offline iteration
-        // return getBucketFromLocalDb(bucket, (value, key) => {
-        //   cb({ value: queryData(query, value), key });
-        // });
-        return;
+        return getBucketFromLocalDb(bucket, params, ({ key, value }) => {
+          cb({ value: queryData(query, value), key });
+        });
       }
-      getFromLocalDb(bucket, key)
+      return getFromLocalDb(bucket, key)
         .then(value => cb({ value: queryData(query, value), key }));
     }
     return cb;
@@ -328,26 +339,18 @@ export default class Socket {
     let fulfilled = false;
     const { bucket, key, query } = params;
     const promise = new Promise((resolve, reject) => {
-      // default timeout handler to prevent callback from hanging indefinitely
-      const timeout = (!this.offlineEnabled && !this.isConnected())
-        ? setTimeout(reject, 5000)
-        : 0;
       promisifiedCallback = ({ error, value }) => {
         if (fulfilled) {
           return;
         }
         fulfilled = true;
+        // default timeout handler to prevent callback from hanging indefinitely
+        const timeout = (!this.offlineEnabled && !this.isConnected())
+          ? setTimeout(reject, 5000)
+          : 0;
+        clearTimeout(timeout);
         if (error) reject(error);
         else {
-          clearTimeout(timeout);
-          /*
-            NOTE: when offline is enabled, the backend will return the full
-            pre-queried value so the client-side can cache it. All querying is
-            then done on the client-side instead.
-           */
-          const valueToSend = this.enableOffline
-            ? queryData(query, value)
-            : value;
           if (this.enableOffline) {
             let valueToPersist;
             if (actionType === 'put') {
@@ -356,16 +359,26 @@ export default class Socket {
               const fromLocalDb = getFromLocalDb(bucket, key);
               valueToPersist = fromLocalDb.then(value => {
                 const ops = params.value || params.ops;
+                console.log(value);
                 return ops.reduce(applyReducer, value);
+              }).catch((err) => {
+                console.error('error', err, params);
               });
             } else {
               valueToPersist = Promise.resolve(value);
             }
             valueToPersist.then(v => {
-              debug('lucidbyte.promisify')(actionType, bucket, key, v);
-              persistToLocalDb(bucket, key, v, actionType);
+              return persistToLocalDb(bucket, key, v, actionType);
             });
           }
+          /*
+            NOTE: when offline is enabled, the backend will return the full
+            pre-queried value so the client-side can cache it. All querying is
+            then done on the client-side instead.
+           */
+          const valueToSend = this.enableOffline
+            ? queryData(query, value)
+            : value;
           resolve(valueToSend);
         }
       };

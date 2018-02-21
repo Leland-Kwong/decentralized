@@ -117,3 +117,14 @@ export const requestAccessToken = (loginCode) => {
       return json;
     });
 };
+
+export const logout = () => {
+  const token = session.get().accessToken;
+  session.end();
+  return fetch(`${serverApiBaseRoute}/logout/${token}`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    }
+  });
+};

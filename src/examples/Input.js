@@ -1,9 +1,14 @@
 import React from 'react';
 
-export default ({ className = '', ...rest }) => {
+export default ({ className = '', type, ...rest }) => {
+  const classes = `input-reset ba b--black-20 pa2 mb2 db w-100 ${className}`;
+  if (type === 'textarea') {
+    return <textarea className={classes} { ...rest } />;
+  }
   return (
     <input
-      className={`input-reset ba b--black-20 pa2 mb2 db w-100 ${className}`}
+      className={classes}
+      type={type}
       { ...rest }
     />
   );

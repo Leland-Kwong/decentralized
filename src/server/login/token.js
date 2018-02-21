@@ -4,8 +4,7 @@ const crypto = require('crypto');
 const ms = require('ms');
 const KV = require('../key-value-store');
 const { dbBasePath } = require('../config');
-const path = require('path');
-const sessionsDb = () => KV(path.join(dbBasePath, '_sessions'), {
+const sessionsDb = () => KV(dbBasePath({ bucket: '_sessions' }), {
   encoding: {
     valueEncoding: 'json'
   }

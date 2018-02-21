@@ -3,9 +3,10 @@
 import React, { Component } from 'react';
 import { render } from 'react-dom';
 import Socket from '../socket-client';
-import { requestAccessToken, scheduleTokenRefresh } from './auth';
+import * as auth from './auth';
 import session from './session';
 import Input from '../../examples/Input';
+import debounce from 'lodash.debounce';
 
 const $App = document.querySelector('#App');
 const { serverApiBaseRoute } = require('./config');
@@ -31,7 +32,7 @@ class LoginForm extends Component {
   handleSubmit = (e) => {
     e.preventDefault();
     const { loginCode } = this.state;
-    requestAccessToken(loginCode)
+    auth.requestAccessToken(loginCode)
       .catch(err => console.error(err))
       .then(res => this.props.onAuthorized({ token: res.accessToken }));
   }
@@ -101,13 +102,15 @@ function startApp() {
       message: '',
       output: '',
       items: [],
-      notification: null
+      notification: null,
+      started: false
     }
 
     componentDidMount() {
       const { token } = this.props;
       sockClient = new Socket({ token, enableOffline: true });
       sockClient.socket
+        .on('connect', this.handleStart)
         .on('disconnect', this.handleDisconnect)
         .on('TokenError', (error) => {
           console.log(error);
@@ -119,7 +122,6 @@ function startApp() {
         .on('reconnect_attempt', this.handleReconnectAttempt)
         .on('reconnect_error', this.handleReconnectError)
         .on('reconnect', this.handleReconnect);
-      this.handleStart();
     }
 
     notify = ({ title, message }) => {
@@ -132,6 +134,9 @@ function startApp() {
     }
 
     handleReconnectAttempt = (attemptNumber) => {
+      if (!this.state.started) {
+        this.handleStart();
+      }
       this.notify({
         title: 'reconnect attempt',
         message: `reconnecting... (attempt ${attemptNumber})`
@@ -158,15 +163,12 @@ function startApp() {
     }
 
     handleStart = () => {
+      this.setState({ started: true });
+
       sockClient.subscribe({
-        bucket: 'leland.chat',
-        key: 'messageText'
-      }, ({ value, error }) => {
-        if (value) {
-          this.setState({ message: value });
-        } else if (error) {
-          console.log(error);
-        }
+        bucket: 'leland.chat'
+      }, (data) => {
+        console.log('leland.chat', data);
       });
 
       // sockClient.subscribe({
@@ -202,65 +204,45 @@ function startApp() {
           console.log('get', value);
         });
 
-      // sockClient.subscribe({
-      //   bucket: '_oplog',
-      //   limit: 5,
-      //   query: /* GraphQL */`
-      //     { b v }
-      //   `
-      //   // reverse: true,
-      //   // initialValue: false
-      //   // values: false,
-      // }, (data) => {
-      //   console.log(data);
-      // });
-
+      let items;
       sockClient.subscribe({
         bucket: 'leland.list',
         limit: 3,
         reverse: true
       }, (data) => {
-        const items = this.state.items;
-        if (data.action === 'del') {
-          delete items[data.key];
-        } else {
-          items[data.key] = data.value;
+        items = items || {};
+        items[data.key] = data.value;
+      }, () => {
+        if (!items) {
+          return;
         }
         this.setState({ items });
+        items = null;
       });
     }
 
     setMessage(value) {
       this.setState({ message: value });
+      this.setMessageUpdateServer(value);
+    }
 
+    setMessageUpdateServer = debounce((value) => {
       sockClient.patch({
         bucket: 'leland.chat',
         key: 'message',
         ops: [
-          { op: 'replace', path: '/message', value },
-          // { op: 'add', path: '/foo', value: {} },
+          { op: 'add', path: '/message', value },
+          { op: 'add', path: '/nested', value: {} },
+          { op: 'add', path: '/nested/value', value },
           // { op: 'add', path: '/foo/list/3', value: 'blah' },
           // { op: 'move', from: '/foo/list/1', path: '/foo/list/0' }
           // { op: 'replace', path: '/foo/list', value: ['bar', 'none', 'ok'] },
         ]
       }).catch(err => console.error(err));
-
-      sockClient.put({
-        bucket: 'leland.chat',
-        key: 'messageText',
-        value
-      }).catch(err => console.error(err));
-    }
+    }, 500)
 
     handleLogout = () => {
-      const token = session.get().accessToken;
-      session.end();
-      fetch(`${apiBaseRoute}/logout/${token}`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json'
-        }
-      }).catch(err => console.error(err))
+      auth.logout.catch(err => console.error(err))
         .then(res => console.log(res));
       sockClient.close();
       this.props.onLogout();
@@ -277,34 +259,39 @@ function startApp() {
         ...this.state.items,
         [key]: value
       };
-      this.setState({ items, message: '' });
+      this.setState({ message: '' });
       sockClient.put({
         bucket: 'leland.list',
         key,
         value
+      }).then(() => {
+        this.setState({ items });
       });
     }
 
     removeItem = (key) => {
       const items = { ...this.state.items };
       delete items[key];
-      this.setState({ items });
       sockClient.del({
         bucket: 'leland.list',
         key
-      });
+      }).then(() => this.setState({ items }));
     }
 
     updateItem = (key, value) => {
       const { items } = this.state;
-      sockClient.put({
+      items[key] = value;
+      this.setState({ items });
+      this.updateItemServer(key, value);
+    }
+
+    updateItemServer = debounce((key, value) => {
+      return sockClient.put({
         bucket: 'leland.list',
         key,
         value
       });
-      items[key] = value;
-      this.setState({ items });
-    }
+    }, 500)
 
     render() {
       return (
@@ -344,6 +331,7 @@ function startApp() {
                   >
                     <div>
                       <Input
+                        type='textarea'
                         onChange={e => this.updateItem(key, e.target.value)}
                         value={v}
                       />
@@ -372,7 +360,7 @@ function startApp() {
     componentDidMount() {
       if (this.state.loggedIn) {
         const { expiresAt } = session.get();
-        scheduleTokenRefresh({
+        auth.scheduleTokenRefresh({
           expiresAt,
         }, this.updateSessionInfo);
       }
@@ -384,7 +372,7 @@ function startApp() {
         token
       });
       const { expiresAt } = session.get();
-      scheduleTokenRefresh({ expiresAt }, this.updateSessionInfo);
+      auth.scheduleTokenRefresh({ expiresAt }, this.updateSessionInfo);
     }
 
     handleLogout = () => {
