@@ -8,16 +8,14 @@ const debug = {
   subscribeError: Debug('evds.subscribeError')
 };
 
-const handleDbResponse = (query, value, ignoreQuery) => {
-  return ignoreQuery
-    ? value
-    : queryData(query, value);
+const handleDbResponse = (query, value) => {
+  return queryData(query, value);
 };
 
-const dbStreamHandler = (keys, values, query, cb, enableOffline) => {
+const dbStreamHandler = (keys, values, query, cb) => {
   if (keys && values) {
     return (data) => {
-      data.value = handleDbResponse(query, data.value, enableOffline);
+      data.value = handleDbResponse(query, data.value);
       cb(data);
     };
   }
@@ -25,7 +23,7 @@ const dbStreamHandler = (keys, values, query, cb, enableOffline) => {
     return (key) => cb({ key });
   }
   if (!keys) {
-    return (value) => cb({ value: handleDbResponse(query, value, enableOffline) });
+    return (value) => cb({ value: handleDbResponse(query, value) });
   }
 };
 
@@ -47,7 +45,6 @@ module.exports = function createSubscribeFn(client, subscriptions) {
     // the results and then emit a { done: 1 } frame. This allows the client to
     // do things like `forEach` once.
     once = false,
-    enableOffline,
     query
   }, ack) {
     const keyToSubscribe = key;
@@ -71,30 +68,23 @@ module.exports = function createSubscribeFn(client, subscriptions) {
         client.emit(eventId, { error: error.message });
       };
       const onStreamEnd = () => client.emit(eventId, doneFrame);
+      const onDataCallback = (data) => {
+        client.emit(eventId, data);
+      };
       const bucketStream = (actionType) => (changeKey, newValue) => {
         if (isInRange(changeKey)) {
           const frame = { key: changeKey, action: actionType };
           if (actionType !== 'del') {
-            frame.value = handleDbResponse(query, newValue, enableOffline);
+            frame.value = handleDbResponse(query, newValue);
           }
           client.emit(eventId, frame);
         }
 
-        const options = enableOffline
-          /*
-            Only allow only options for offline mode that don't mutate the
-            result set. This is important because offline mode needs the
-            entire set for local database storage.
-           */
-          ? { reverse }
-          : { limit, reverse, keys, values, gt, lt, gte, lte };
+        const options = { limit, reverse, keys, values, gt, lt, gte, lte };
         const stream = db.createReadStream(options);
-        const onDataCallback = (data) => {
-          client.emit(eventId, data);
-        };
         stream.on(
           'data',
-          dbStreamHandler(keys, values, query, onDataCallback, enableOffline)
+          dbStreamHandler(options.keys, options.values, query, onDataCallback)
         );
         stream.on('error', onStreamError);
         stream.on('end', onStreamEnd);

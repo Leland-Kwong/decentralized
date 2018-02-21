@@ -4,7 +4,7 @@
 // TODO: add file upload support #enhancement
 // TODO: add support for *key* filtering to `db.on`. Right now, each subscription function gets called whenever the database changes. #performance
 // TODO: add support for server-side functions #enhancement
-// TODO: batch writes to be 20ops/tick? #performance
+// TODO: add support for batch writes. This way when syncing happens, change events will be throttled. #performance #leveldb.batch
 // TODO: watch '_data' folder and close the database if folder gets deleted
 const KV = require('./key-value-store');
 const getDbClient = require('./api/get-db');

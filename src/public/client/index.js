@@ -145,6 +145,7 @@ function startApp() {
     }
 
     handleReconnectAttempt = (attemptNumber) => {
+      this.handleStart();
       this.notify({
         title: 'reconnect attempt',
         message: `reconnecting... (attempt ${attemptNumber})`
@@ -171,9 +172,9 @@ function startApp() {
     }
 
     handleStart = () => {
-      // if (this.state.started) {
-      //   return;
-      // }
+      if (this.state.started) {
+        return;
+      }
       this.setState({ started: true });
 
       sockClient.subscribe({
@@ -230,6 +231,19 @@ function startApp() {
         this.setState({ items });
         items = null;
       });
+
+      // let count = 0;
+      // sockClient.subscribe({
+      //   bucket: 'leland.list',
+      //   keys: false
+      //   // limit: 3,
+      //   // reverse: true
+      // }, () => {
+      //   count++;
+      // }, () => {
+      //   console.log('leland.list.done', count);
+      //   count = 0;
+      // });
     }
 
     setMessage(value) {
@@ -260,9 +274,9 @@ function startApp() {
     }
 
     addItem = (e) => {
-      e.preventDefault();
+      e && e.preventDefault();
       const value = this.state.message;
-      if (!value.length) {
+      if (!value) {
         return;
       }
       const key = Date.now();

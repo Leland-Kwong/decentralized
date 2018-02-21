@@ -1,11 +1,17 @@
-// TODO: offline-mode: reiterate keys for `subscribeBucket` whenever a mutation happens #mvp
+// TODO: add support for bucket mutation events for granular bucket observing. #mvp #performance
 // TODO: add support for listener removal for subscribers and offline listeners #mvp
+// TODO: generate eventid from client-side since events are scoped to each socket client. This also means we don't need to wait for acknowledgement of subscription, which may be a race condition due to incorrect ordering. #reliability
 
 import localForage from 'localforage';
 import Emitter from 'tiny-emitter';
 import queryData from '../isomorphic/query-data';
 import { applyReducer } from 'fast-json-patch';
 import checkRange from '../isomorphic/check-key-range';
+import {
+  persistToLocalDb,
+  getBucketFromLocalDb,
+  getFromLocalDb
+} from './client/localdb';
 const { serverApiBaseRoute } = require('./client/config');
 
 const bucketsToIgnore = {
@@ -17,55 +23,6 @@ const noop = () => {};
 let debug = () => noop;
 if (process.env.NODE_ENV === 'dev') {
   debug = require('debug');
-}
-
-const localDbError = debug('lucidbyte.localDbError');
-const getInstance = (bucket) => {
-  const config = { name: 'lucidbyte', storeName: bucket };
-  return localForage.createInstance(config);
-};
-function persistToLocalDb(bucket, key, value, action) {
-  const instance = getInstance(bucket);
-  // db only allows strings as keys
-  const keyAsString = key + '';
-
-  debug('lucidbyte.cacheData')(bucket, key, value, action);
-
-  if (action === 'del') {
-    return instance.removeItem(keyAsString);
-  }
-  return instance.setItem(keyAsString, value)
-    .catch(localDbError);
-}
-
-function getFromLocalDb(bucket, key) {
-  const instance = getInstance(bucket);
-  // NOTE: returns `null` if no value exists
-  return instance.getItem(key).then(v => {
-    if (null === v) {
-      const msg = `getFromLocalDb: ${bucket}/${key}`;
-      return Promise.reject(msg);
-    }
-    return v;
-  });
-}
-
-function getBucketFromLocalDb(bucket, iterationOptions, cb, onComplete) {
-  const { gt, gte, lt, lte, limit, reverse } = iterationOptions;
-  const keyRangeFn = checkRange(gt, gte, lt, lte);
-  const instance = getInstance(bucket);
-  const list = [];
-  instance.iterate((value, key) => {
-    list.push({ key, value });
-  }).then(() => {
-    const l = reverse ? list.reverse() : list;
-    l.slice(0, limit).forEach(d => {
-      if (keyRangeFn(d.key)) {
-        cb(d);
-      }
-    });
-    onComplete();
-  });
 }
 
 // local operations to cache during network outage
@@ -111,6 +68,15 @@ class OfflineEmitter {
 
   emit(bucket, key, data = {}) {
     this.emitter.emit(this.eventName(bucket, key), data);
+    const isRoot = key === '*';
+    if (isRoot) {
+      return;
+    }
+    const triggerBucketChange = () => this.emit(bucket, '*', data);
+    persistToLocalDb(bucket, key, data.value, data.action)
+      // if an error happens, we should rerender
+      .catch(triggerBucketChange)
+      .then(triggerBucketChange);
   }
 }
 
@@ -143,7 +109,7 @@ export default class Socket {
   }
 
   subscribeBucket(params, cb, onComplete) {
-    const { socket } = this;
+    const { socket, enableOffline } = this;
     const {
       bucket,
       limit,
@@ -199,15 +165,31 @@ export default class Socket {
         });
       }
     };
+    const subscribeOptions = enableOffline
+      /*
+        NOTE
+        For offline mode, only allow options that don't mutate the
+        result set. This is important because offline mode needs the
+        entire bucket for local database storage.
+       */
+      ? { bucket, reverse, keys: true, values: true }
+      : { query, bucket, limit, gte, gt, lte, lt, reverse, keys, values,
+        initialValue, once
+      };
     socket.emit(
       'subscribeBucket',
-      { query, bucket, limit, gte, gt, lte, lt, reverse, keys, values,
-        enableOffline: this.enableOffline, initialValue, once
-      },
+      subscribeOptions,
       onSubscribeBucket
     );
     socket.on('reconnect', () => {
-      socket.emit('subscribe', params, onSubscribeBucket);
+      socket.emit('subscribe', subscribeOptions, onSubscribeBucket);
+    });
+    this.offlineEmitter.on(bucket, '*', (data) => {
+      console.log('lucidbyte.offline.subscribeBucket', data);
+      const iterateFn = ({ key, value }) => {
+        cb({ value: queryData(query, value), key });
+      };
+      getBucketFromLocalDb(bucket, params, iterateFn, onComplete);
     });
     this.triggerCallbackIfOffline(cb, params, onComplete);
   }
@@ -233,17 +215,16 @@ export default class Socket {
     socket.on('reconnect', () => {
       socket.emit('subscribe', params, onSubscribe);
     });
+    this.offlineEmitter.on(bucket, key, (data) => {
+      console.log('lucidbyte.offline.subscribe', data);
+      subscriber(data);
+    });
     this.triggerCallbackIfOffline(subscriber, params);
   }
 
   subscribe(params, subscriber, onComplete = noop) {
     const { bucket, key } = params;
     require('debug')('lucidbyte.subscribe')(bucket, key);
-    this.offlineEmitter.on(bucket, key, (data) => {
-      console.log('offline', data);
-      persistToLocalDb(bucket, key, data.value);
-      subscriber(data);
-    });
     if (typeof params.key === 'undefined') {
       return this.subscribeBucket(params, subscriber, onComplete);
     }
@@ -352,15 +333,15 @@ export default class Socket {
     let fulfilled = false;
     const { bucket, key, query } = params;
     const promise = new Promise((resolve, reject) => {
+      // default timeout handler to prevent callback from hanging indefinitely
+      const timeout = (!this.offlineEnabled && !this.isConnected())
+        ? setTimeout(reject, 5000)
+        : 0;
       promisifiedCallback = ({ error, value }) => {
         if (fulfilled) {
           return;
         }
         fulfilled = true;
-        // default timeout handler to prevent callback from hanging indefinitely
-        const timeout = (!this.offlineEnabled && !this.isConnected())
-          ? setTimeout(reject, 5000)
-          : 0;
         clearTimeout(timeout);
         if (error) reject(error);
         else {
