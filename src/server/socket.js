@@ -62,16 +62,12 @@ io.on('connection', (client) => {
     onSubscribe(params, callback);
   });
 
-  async function dbGet ({ bucket, key, query, _ol: offlineEnabled }, fn) {
+  async function dbGet ({ bucket, key, query }, fn) {
     try {
       const db = await getDbClient(bucket);
       const value = await db.get(key);
-      const response = {
-        value: offlineEnabled
-          ? value // send entire payload for client-side can cache
-          : queryData(query, value)
-      };
-      fn(response);
+      const response = queryData(query, value);
+      fn({ value: response });
     } catch(err) {
       if (err.type === 'NotFoundError') {
         fn({ value: null });

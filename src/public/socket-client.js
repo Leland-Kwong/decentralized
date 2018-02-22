@@ -2,6 +2,7 @@
 // TODO: add support for listener removal for subscribers and offline listeners #mvp
 // TODO: generate eventid from client-side since events are scoped to each socket client. This also means we don't need to wait for acknowledgement of subscription, which may be a race condition due to incorrect ordering. #reliability
 
+import createEventId from './client/event-id';
 import localForage from 'localforage';
 import Emitter from 'tiny-emitter';
 import queryData from '../isomorphic/query-data';
@@ -108,7 +109,7 @@ export default class Socket {
     return this.socket.connected;
   }
 
-  subscribeBucket(params, cb, onComplete) {
+  subscribeBucket(params, cb, onAcknowledge, onComplete) {
     const { socket, enableOffline } = this;
     const {
       bucket,
@@ -124,47 +125,43 @@ export default class Socket {
       query,
       once
     } = params;
-    const onSubscribeBucket = (eventId) => {
-      const isInRange = checkRange(gt, gte, lt, lte);
-      let count = 0;
-      let removeListener = null;
-      const fn = (data) => {
-        // ignore action frames
-        if (data.action) {
-          return;
-        }
-        if (data.done) {
-          count = 0;
-          if (onComplete) {
-            // stream foreach style.
-            // streams results until completed, then removes listener on server
-            if (once) {
-              removeListener();
-            }
-            onComplete();
-          }
-          return;
-        }
-        // we'll do option filtering locally for offline mode since
-        // offline mode returns the entire dataset
-        if (this.enableOffline) {
-          if (limit && count++ >= limit) return;
-          if (!isInRange(data.key)) return;
-        }
-        cb(data);
-      };
-      removeListener = () => socket.off(eventId, fn);
-      socket.on(eventId, fn);
-
-      const shouldCache = this.enableOffline && !bucketsToIgnore[bucket];
-      if (shouldCache) {
-        socket.on(eventId, (data) => {
-          if (data.done) return;
-          debug('lucidbyte.subscribeBucket.offline')(data);
-          persistToLocalDb(bucket, data.key, data.value, data.action);
-        });
+    const eventId =
+      params.eventId =
+        createEventId();
+    const isInRange = checkRange(gt, gte, lt, lte);
+    let count = 0;
+    const onSubscribeBucket = (data) => {
+      // ignore action frames
+      if (data.action) {
+        return;
       }
+      if (data.done) {
+        count = 0;
+        if (onComplete) {
+          if (once) {
+            socket.off(eventId, onSubscribeBucket);
+          }
+          onComplete();
+        }
+        return;
+      }
+      // we'll do option filtering locally for offline mode since
+      // offline mode returns the entire dataset
+      if (this.enableOffline) {
+        if (limit && count++ >= limit) return;
+        if (!isInRange(data.key)) return;
+      }
+      cb(data);
     };
+
+    const shouldCache = this.enableOffline && !bucketsToIgnore[bucket];
+    if (shouldCache) {
+      socket.on(eventId, (data) => {
+        if (data.done) return;
+        debug('lucidbyte.subscribeBucket.offline')(data);
+        persistToLocalDb(bucket, data.key, data.value, data.action);
+      });
+    }
     const subscribeOptions = enableOffline
       /*
         NOTE
@@ -176,10 +173,12 @@ export default class Socket {
       : { query, bucket, limit, gte, gt, lte, lt, reverse, keys, values,
         initialValue, once
       };
+    subscribeOptions.eventId = eventId;
+    socket.on(eventId, onSubscribeBucket);
     socket.emit(
       'subscribeBucket',
       subscribeOptions,
-      onSubscribeBucket
+      onAcknowledge
     );
     socket.on('reconnect', () => {
       socket.emit('subscribe', subscribeOptions, onSubscribeBucket);
@@ -194,26 +193,27 @@ export default class Socket {
     this.triggerCallbackIfOffline(cb, params, onComplete);
   }
 
-  subscribeKey(params, subscriber) {
+  subscribeKey(params, onAcknowledge, subscriber) {
     const { socket } = this;
-    const { bucket, key } = params;
-    const onSubscribe = (eventId) => {
-      socket.on(eventId, subscriber);
-      if (this.enableOffline) {
-        const offlineCb = (data) => {
-          debug('lucidbyte.offline.subscribeKey')(data);
-          persistToLocalDb(bucket, key, data.value, data.action);
-        };
-        socket.on(eventId, offlineCb);
-      }
-    };
+    const { bucket, key, once } = params;
+    const eventId =
+      params.eventId =
+        createEventId();
+    if (this.enableOffline) {
+      const offlineCb = (data) => {
+        debug('lucidbyte.offline.subscribeKey')(data);
+        persistToLocalDb(bucket, key, data.value, data.action);
+      };
+      socket.on(eventId, offlineCb);
+    }
+    socket[once ? 'once' : 'on'](eventId, subscriber);
     socket.emit(
       'subscribe',
       params,
-      onSubscribe
+      onAcknowledge
     );
     socket.on('reconnect', () => {
-      socket.emit('subscribe', params, onSubscribe);
+      socket.emit('subscribe', params, subscriber);
     });
     this.offlineEmitter.on(bucket, key, (data) => {
       console.log('lucidbyte.offline.subscribe', data);
@@ -222,13 +222,13 @@ export default class Socket {
     this.triggerCallbackIfOffline(subscriber, params);
   }
 
-  subscribe(params, subscriber, onComplete = noop) {
+  subscribe(params, subscriber, onComplete = noop, onAcknowledge = noop) {
     const { bucket, key } = params;
     require('debug')('lucidbyte.subscribe')(bucket, key);
     if (typeof params.key === 'undefined') {
-      return this.subscribeBucket(params, subscriber, onComplete);
+      return this.subscribeBucket(params, subscriber, onAcknowledge, onComplete);
     }
-    this.subscribeKey(params, subscriber);
+    this.subscribeKey(params, subscriber, onAcknowledge);
   }
 
   put(params, cb) {
@@ -280,10 +280,12 @@ export default class Socket {
   get(params, cb) {
     const { socket } = this;
     const callback = this.promisifySocket('get', params, cb);
+    let serverOptions = params;
     if (this.enableOffline) {
-      params._ol = 1;
+      serverOptions = { ...params };
+      delete serverOptions.query;
     }
-    socket.emit('get', params, callback);
+    socket.emit('get', serverOptions, callback);
     return callback.promise;
   }
 
@@ -309,6 +311,9 @@ export default class Socket {
   }
 
   triggerCallbackIfOffline(cb, params, onComplete) {
+    if (!this.enableOffline) {
+      return;
+    }
     const { bucket, key, query } = params;
     if (!this.isConnected()) {
       const getBucket = typeof key === 'undefined';

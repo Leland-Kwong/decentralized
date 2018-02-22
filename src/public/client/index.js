@@ -94,6 +94,26 @@ class LoginForm extends Component {
   }
 }
 
+function testData(authToken) {
+  const db = new Socket({ token: authToken });
+  let count = 0;
+  db.subscribe({
+    bucket: '_opLog',
+    // values: false,
+    reverse: true,
+    limit: 2,
+    once: true
+  }, (data) => {
+    if (count === 0) {
+      console.log('oplog data', data);
+    }
+    count++;
+  }, () => {
+    console.log('oplog count', count);
+    count = 0;
+  });
+}
+
 function startApp() {
   let sockClient;
 
@@ -108,6 +128,7 @@ function startApp() {
 
     componentDidMount() {
       const { token } = this.props;
+      testData(token);
       sockClient = new Socket({ token, enableOffline: true });
 
       sockClient.socket

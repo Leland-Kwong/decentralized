@@ -1,5 +1,4 @@
 const queryData = require('../../isomorphic/query-data');
-const shortid = require('shortid');
 const getDbClient = require('./get-db');
 const Debug = require('debug');
 
@@ -30,6 +29,7 @@ const dbStreamHandler = (keys, values, query, cb) => {
 const doneFrame = { done: 1 };
 module.exports = function createSubscribeFn(client, subscriptions) {
   return async function dbSubscribe({
+    eventId,
     bucket,
     key = '',
     limit = -1,
@@ -46,18 +46,15 @@ module.exports = function createSubscribeFn(client, subscriptions) {
     // do things like `forEach` once.
     once = false,
     query
-  }, ack) {
+  }, onAcknowledge) {
     const keyToSubscribe = key;
     const watchEntireBucket = key === '';
-    // a unique eventId for each subscription
-    const eventId = shortid.generate();
     let db;
 
     try {
       db = await getDbClient(bucket);
-      ack(eventId);
     } catch(err) {
-      return ack({ error: err.message });
+      return onAcknowledge({ error: err.message });
     }
 
     const checkRange = require('./../../isomorphic/check-key-range');
