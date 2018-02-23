@@ -103,6 +103,7 @@ class OfflineEmitter {
   }
 }
 
+// set database key context
 function keyFromBucket(key) {
   const copy = this.clone();
   copy._key = key;
@@ -138,22 +139,25 @@ Object.assign(Socket.prototype, {
     return this.socket.connected;
   },
 
+  // set database bucket context
   bucket(bucketName) {
     const copy = this.clone();
     copy._bucket = bucketName;
     return copy;
   },
 
-  clone(original) {
+  clone(root) {
     // prevent nested depth
-    if (!original && this.__original) {
-      const copy = this.clone(this.__original);
+    const { __root } = this;
+    if (!root && __root) {
+      const copy = this.clone(__root);
       copy._bucket = this._bucket;
       return copy;
     }
-    const inst = original || this;
-    const proto = original ? {} : {
-      __original: {
+    const inst = root || this;
+    // don't expose the `key` method if it already has a key context
+    const proto = root ? {} : {
+      __root: {
         value: inst
       },
       key: {
