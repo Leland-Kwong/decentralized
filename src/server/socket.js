@@ -130,6 +130,24 @@ io.on('connection', (client) => {
   };
 
   client.on('patch', dbPatch);
+
+  const dbInspect = async ({ bucket, query }, ack) => {
+    const response = {};
+    const onData = (data) => {
+      response[data.key] = data.value;
+    };
+    const db = await getDbClient(bucket);
+    const stream = db.createReadStream();
+    stream.on('data', onData);
+    stream.on('end', () => {
+      try {
+        ack({ value: queryData(query, response) });
+      } catch(err) {
+        ack({ error: err.message });
+      }
+    });
+  };
+  client.on('inspect.db', dbInspect);
 });
 
 module.exports = (server) => {

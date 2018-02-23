@@ -1,9 +1,10 @@
-import checkRange from '../src/isomorphic/check-key-range';
+import checkRange from '../src/isomorphic/is-value-in-range';
 
 describe('check key range', () => {
   test('string', () => {
     let gt, gte, lt, lte;
     const key = 'message';
+
     const isInRange = checkRange(gt, gte, lt, lte)(key);
     expect(isInRange).toBe(true);
 
@@ -13,7 +14,7 @@ describe('check key range', () => {
 
   test('number', () => {
     let gt, gte, lt, lte;
-    const key = '1235562';
+    const key = 1235562;
     const isInRange = checkRange(gt, gte, lt, lte)(key);
     expect(isInRange).toBe(true);
   });

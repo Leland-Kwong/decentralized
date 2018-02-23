@@ -1,6 +1,6 @@
 import debug from 'debug';
 import localForage from 'localforage';
-import checkRange from '../../isomorphic/check-key-range';
+import checkRange from '../../isomorphic/is-value-in-range';
 
 const localDbError = debug('lucidbyte.localDbError');
 const localInstanceCache = new Map();
@@ -9,7 +9,11 @@ const getInstance = (bucket) => {
   if (fromCache) {
     return fromCache;
   }
-  const config = { name: 'lucidbyte', storeName: bucket };
+  const config = {
+    driver: localForage.INDEXEDDB,
+    name: 'lucidbyte',
+    storeName: bucket
+  };
   const inst = localForage.createInstance(config);
   localInstanceCache.set(bucket, inst);
   return inst;
@@ -34,7 +38,7 @@ export function getFromLocalDb(bucket, key) {
   // NOTE: returns `null` if no value exists
   return instance.getItem(key).then(v => {
     if (null === v) {
-      const msg = `getFromLocalDb: ${bucket}/${key}`;
+      const msg = `localDb data at \`${bucket}/${key}\` is undefined`;
       return Promise.reject(msg);
     }
     return v;

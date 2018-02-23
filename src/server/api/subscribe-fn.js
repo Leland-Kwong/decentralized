@@ -57,7 +57,7 @@ module.exports = function createSubscribeFn(client, subscriptions) {
       return onAcknowledge({ error: err.message });
     }
 
-    const checkRange = require('./../../isomorphic/check-key-range');
+    const checkRange = require('./../../isomorphic/is-value-in-range');
     const isInRange = checkRange(gt, gte, lt, lte);
     // watch entire bucket
     if (watchEntireBucket) {

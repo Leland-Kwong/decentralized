@@ -130,6 +130,17 @@ function startApp() {
       const { token } = this.props;
       testData(token);
       sockClient = new Socket({ token, enableOffline: true });
+      const clientNoOffline = new Socket({ token });
+
+      const testBucket = clientNoOffline.bucket('leland.list');
+      testBucket.inspect({}, res => {
+        console.log(res.value);
+      });
+      console.log(
+        testBucket,
+        testBucket.key('blah'),
+        testBucket.key('blah2'),
+      );
 
       sockClient.socket
         .on('connect', this.handleStart)
@@ -232,7 +243,7 @@ function startApp() {
             slice: [-1]
           }
         }
-      }).catch(err => console.log(err))
+      }).catch(err => console.error(err))
         .then(value => {
           console.log('get', value);
         });

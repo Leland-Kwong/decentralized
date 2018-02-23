@@ -1,18 +1,19 @@
+// TODO: during server syncing, we should also grab all change events from the oplog
 // TODO: add support for bucket mutation events for granular bucket observing. #mvp #performance
 // TODO: add support for listener removal for subscribers and offline listeners #mvp
-// TODO: generate eventid from client-side since events are scoped to each socket client. This also means we don't need to wait for acknowledgement of subscription, which may be a race condition due to incorrect ordering. #reliability
 
 import createEventId from './client/event-id';
 import localForage from 'localforage';
 import Emitter from 'tiny-emitter';
 import queryData from '../isomorphic/query-data';
 import { applyReducer } from 'fast-json-patch';
-import checkRange from '../isomorphic/check-key-range';
+import checkRange from '../isomorphic/is-value-in-range';
 import {
   persistToLocalDb,
   getBucketFromLocalDb,
   getFromLocalDb
 } from './client/localdb';
+import noop from '../isomorphic/noop';
 const { serverApiBaseRoute } = require('./client/config');
 
 const bucketsToIgnore = {
@@ -20,7 +21,6 @@ const bucketsToIgnore = {
   _sessions: true
 };
 
-const noop = () => {};
 let debug = () => noop;
 if (process.env.NODE_ENV === 'dev') {
   debug = require('debug');
@@ -31,6 +31,28 @@ const localOpLog = localForage.createInstance({
   name: 'lucidbyte',
   storeName: '_opLog'
 });
+let syncing = false;
+function flushAndSyncLog(socketClientInstance) {
+  if (syncing) {
+    return;
+  }
+  syncing = true;
+  console.log('sync');
+  localOpLog.iterate((entry, key) => {
+    const { action, ...params } = entry;
+    params._syncing = true;
+    socketClientInstance[action](params)
+      .catch(console.error)
+      .then(() => {
+        localOpLog.removeItem(key);
+      });
+  }).then(() => {
+    syncing = false;
+  }).catch(() => {
+    syncing = false;
+  });
+}
+
 
 /*
   Log all writes to client-side storage when offline.
@@ -81,6 +103,12 @@ class OfflineEmitter {
   }
 }
 
+function keyFromBucket(key) {
+  const copy = this.clone();
+  copy._key = key;
+  return copy;
+}
+
 export default class Socket {
   constructor(config) {
     const {
@@ -97,17 +125,43 @@ export default class Socket {
       transports
     });
 
-    socket
-      .on('connect', this.flushAndSyncLog);
+    socket.on('connect', () => flushAndSyncLog(this));
 
     this.socket = socket;
     this.offlineEmitter = new OfflineEmitter();
     this.enableOffline = enableOffline;
   }
+}
 
+Object.assign(Socket.prototype, {
   isConnected() {
     return this.socket.connected;
-  }
+  },
+
+  bucket(bucketName) {
+    const copy = this.clone();
+    copy._bucket = bucketName;
+    return copy;
+  },
+
+  clone(original) {
+    // prevent nested depth
+    if (!original && this.__original) {
+      const copy = this.clone(this.__original);
+      copy._bucket = this._bucket;
+      return copy;
+    }
+    const inst = original || this;
+    const proto = original ? {} : {
+      __original: {
+        value: inst
+      },
+      key: {
+        value: keyFromBucket
+      }
+    };
+    return Object.create(inst, proto);
+  },
 
   subscribeBucket(params, cb, onAcknowledge, onComplete) {
     const { socket, enableOffline } = this;
@@ -158,7 +212,7 @@ export default class Socket {
     if (shouldCache) {
       socket.on(eventId, (data) => {
         if (data.done) return;
-        debug('lucidbyte.subscribeBucket.offline')(data);
+        // debug('lucidbyte.subscribeBucket.offline')(data);
         persistToLocalDb(bucket, data.key, data.value, data.action);
       });
     }
@@ -191,7 +245,7 @@ export default class Socket {
       getBucketFromLocalDb(bucket, params, iterateFn, onComplete);
     });
     this.triggerCallbackIfOffline(cb, params, onComplete);
-  }
+  },
 
   subscribeKey(params, onAcknowledge, subscriber) {
     const { socket } = this;
@@ -220,7 +274,7 @@ export default class Socket {
       subscriber(data);
     });
     this.triggerCallbackIfOffline(subscriber, params);
-  }
+  },
 
   subscribe(params, subscriber, onComplete = noop, onAcknowledge = noop) {
     const { bucket, key } = params;
@@ -229,7 +283,7 @@ export default class Socket {
       return this.subscribeBucket(params, subscriber, onAcknowledge, onComplete);
     }
     this.subscribeKey(params, subscriber, onAcknowledge);
-  }
+  },
 
   put(params, cb) {
     const { bucket, key, value, _syncing } = params;
@@ -246,7 +300,7 @@ export default class Socket {
     const callback = this.promisifySocket('put', params, cb);
     socket.emit('put', { bucket, key, value }, callback);
     return callback.promise;
-  }
+  },
 
   patch(params, cb) {
     // accepts either `value` or `ops` property as the patch
@@ -274,7 +328,7 @@ export default class Socket {
     const opsAsString = JSON.stringify(patch);
     socket.emit('patch', { bucket, key, ops: opsAsString }, callback);
     return callback.promise;
-  }
+  },
 
   // gets the value once
   get(params, cb) {
@@ -287,7 +341,7 @@ export default class Socket {
     }
     socket.emit('get', serverOptions, callback);
     return callback.promise;
-  }
+  },
 
   del(params, cb) {
     const { socket } = this;
@@ -304,11 +358,11 @@ export default class Socket {
     const callback = this.promisifySocket('del', params, cb);
     socket.emit('delete', { bucket, key }, callback);
     return callback.promise;
-  }
+  },
 
   close() {
     this.socket.close();
-  }
+  },
 
   triggerCallbackIfOffline(cb, params, onComplete) {
     if (!this.enableOffline) {
@@ -326,7 +380,7 @@ export default class Socket {
         .then(value => cb({ value: queryData(query, value), key }));
     }
     return cb;
-  }
+  },
 
   promisifySocket(
     actionType,
@@ -339,7 +393,7 @@ export default class Socket {
     const { bucket, key, query } = params;
     const promise = new Promise((resolve, reject) => {
       // default timeout handler to prevent callback from hanging indefinitely
-      const timeout = (!this.offlineEnabled && !this.isConnected())
+      const timeout = (!this.enableOffline && !this.isConnected())
         ? setTimeout(reject, 5000)
         : 0;
       promisifiedCallback = ({ error, value }) => {
@@ -358,7 +412,6 @@ export default class Socket {
               const fromLocalDb = getFromLocalDb(bucket, key);
               valueToPersist = fromLocalDb.then(value => {
                 const ops = params.value || params.ops;
-                console.log(value);
                 return ops.reduce(applyReducer, value);
               }).catch((err) => {
                 console.error('error', err, params);
@@ -386,22 +439,12 @@ export default class Socket {
     if (this.enableOffline && !this.isConnected()) {
       if (actionType === 'get') {
         getFromLocalDb(bucket, key)
-          .then(value => promisifiedCallback({ value, key }));
+          .catch(console.warn)
+          .then(value => promisifiedCallback({ value }));
       }
     }
     return promisifiedCallback;
-  }
+  },
 
-  flushAndSyncLog = () => {
-    console.log('sync');
-    localOpLog.iterate((entry, key) => {
-      const { action, ...params } = entry;
-      params._syncing = true;
-      this[action](params)
-        .catch(console.error)
-        .then(() => {
-          localOpLog.removeItem(key);
-        });
-    });
-  }
-}
+  inspect: require('./client/inspect-db').default
+});
