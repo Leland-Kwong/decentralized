@@ -1,6 +1,6 @@
 # Event driven storage
 
-# Project priorities (ordered by importance)
+# Project priorities
 
 1. Ease of use
 2. Ease of deployment

@@ -1,3 +1,4 @@
+// tails the bucket
 export default function inspect(params = {}, callback) {
   const {
     bucket = this._bucket,
@@ -6,8 +7,8 @@ export default function inspect(params = {}, callback) {
   const _callback = callback || params;
   this.subscribe({
     bucket,
+    query,
+    reverse: true,
     limit: 1
-  }, () => {
-    this.socket.emit('inspect.db', { bucket, query }, _callback);
-  });
+  }, _callback);
 }

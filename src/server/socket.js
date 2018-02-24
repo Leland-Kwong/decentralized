@@ -10,7 +10,6 @@ const getDbClient = require('./api/get-db');
 const Debug = require('debug');
 const { AccessToken } = require('./login');
 const queryData = require('../isomorphic/query-data');
-const { encodeData } = require('./key-value-store/codecs');
 const debug = {
   checkToken: Debug('evds.socket.checkToken'),
   patch: Debug('evds.db.patch'),
@@ -119,24 +118,6 @@ io.on('connection', (client) => {
   };
 
   client.on('patch', dbPatch);
-
-  const dbInspect = async ({ bucket, query }, ack) => {
-    const response = {};
-    const onData = (data) => {
-      response[data.key] = data.value.parsed;
-    };
-    const db = await getDbClient(bucket);
-    const stream = db.createReadStream();
-    stream.on('data', onData);
-    stream.on('end', () => {
-      try {
-        ack({ value: queryData(query, response) });
-      } catch(err) {
-        ack({ error: err.message });
-      }
-    });
-  };
-  client.on('inspect.db', dbInspect);
 });
 
 module.exports = (server) => {

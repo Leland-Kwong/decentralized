@@ -1,20 +1,23 @@
+// TODO: only have one socket connection open at any given time.
 // TODO: during server syncing, we should also grab all change events from the oplog
 // TODO: add support for bucket mutation events for granular bucket observing. #mvp #performance
 // TODO: add support for listener removal for subscribers and offline listeners #mvp
 
 import createEventId from './client/event-id';
-import localForage from 'localforage';
 import Emitter from 'tiny-emitter';
 import queryData from '../isomorphic/query-data';
 import { applyReducer } from 'fast-json-patch';
 import checkRange from '../isomorphic/is-value-in-range';
+import noop from '../isomorphic/noop';
+const { serverApiBaseRoute } = require('./client/config');
+
 import {
   persistToLocalDb,
   getBucketFromLocalDb,
-  getFromLocalDb
+  getFromLocalDb,
+  flushAndSyncLog,
+  logAction
 } from './client/localdb';
-import noop from '../isomorphic/noop';
-const { serverApiBaseRoute } = require('./client/config');
 
 const bucketsToIgnore = {
   _oplog: true,
@@ -24,53 +27,6 @@ const bucketsToIgnore = {
 let debug = () => noop;
 if (process.env.NODE_ENV === 'dev') {
   debug = require('debug');
-}
-
-// local operations to cache during network outage
-const localOpLog = localForage.createInstance({
-  name: 'lucidbyte',
-  storeName: '_opLog'
-});
-let syncing = false;
-function flushAndSyncLog(socketClientInstance) {
-  if (syncing) {
-    return;
-  }
-  syncing = true;
-  console.log('sync');
-  localOpLog.iterate((entry, key) => {
-    const { action, ...params } = entry;
-    params._syncing = true;
-    socketClientInstance[action](params)
-      .catch(console.error)
-      .then(() => {
-        localOpLog.removeItem(key);
-      });
-  }).then(() => {
-    syncing = false;
-  }).catch(() => {
-    syncing = false;
-  });
-}
-
-
-/*
-  Log all writes to client-side storage when offline.
-
-  data = {
-    action = String!,
-    bucket = String!,
-    key = String!,
-    value = Any?
-  }
- */
-function logAction(data, socket) {
-  if (socket.connected) {
-    return Promise.resolve({});
-  }
-  const highRestTimestamp = (Date.now() + performance.now()) * 1000 + '';
-  const entryId = highRestTimestamp;
-  return localOpLog.setItem(entryId, data);
 }
 
 class OfflineEmitter {
@@ -110,24 +66,32 @@ function keyFromBucket(key) {
   return copy;
 }
 
+const socketsByUrl = new Map();
+
 export default class Socket {
   constructor(config) {
     const {
       token,
       transports = ['websocket'],
-      enableOffline = false
+      enableOffline = false,
+      url = serverApiBaseRoute
     } = config;
-    const socketClientBasePath = serverApiBaseRoute;
-    const io = require('socket.io-client');
-    const socket = io(socketClientBasePath, {
-      query: { token },
-      secure: true,
-      // force websocket as default
-      transports
-    });
+
+    // share the same connection if it already exists
+    let socket = socketsByUrl.get(url);
+    if (!socket) {
+      const io = require('socket.io-client');
+      socket = io(url, {
+        query: { token },
+        secure: true,
+        // force websocket as default
+        transports
+      });
+
+      socketsByUrl.set(url, socket);
+    }
 
     socket.on('connect', () => flushAndSyncLog(this));
-
     this.socket = socket;
     this.offlineEmitter = new OfflineEmitter();
     this.enableOffline = enableOffline;
@@ -147,7 +111,7 @@ Object.assign(Socket.prototype, {
   },
 
   clone(root) {
-    // prevent nested depth
+    // prevent nested prototype
     const { __root } = this;
     if (!root && __root) {
       const copy = this.clone(__root);

@@ -10,7 +10,7 @@
     }
   },
   "scripts": {
-    "start:dev": "NODE_ENV=dev parcel index.html",
+    "start:dev": "NODE_ENV=dev BABEL_ENV=development parcel index.html",
     "start:staging": "NODE_ENV=staging parcel index.html",
     "start": "node src/server/index",
     "test": "jest",
@@ -20,6 +20,7 @@
   "license": "ISC",
   "dependencies": {
     "body-parser": "^1.18.2",
+    "buffer": "^5.1.0",
     "bytes": "^3.0.0",
     "compression": "^1.7.1",
     "cors": "^2.8.4",
@@ -33,6 +34,7 @@
     "graphql": "^0.13.1",
     "graphql-anywhere": "^4.1.5",
     "graphql-tag": "^2.7.3",
+    "level-browserify": "^1.1.1",
     "level-errors": "^1.1.2",
     "leveldown": "^3.0.0",
     "levelup": "^2.0.2",
@@ -52,6 +54,7 @@
     "babel-plugin-transform-class-properties": "^6.24.1",
     "babel-plugin-transform-object-rest-spread": "^6.26.0",
     "babel-plugin-transform-react-jsx": "^6.24.1",
+    "babel-polyfill": "^6.26.0",
     "chance": "^1.0.13",
     "eslint": "^4.14.0",
     "eslint-config-standard": "^10.2.1",
