@@ -1,4 +1,4 @@
-import decodeData from './decode-data';
+import decodeData from './codecs';
 import genList from 'genlist';
 
 test('parse db data', () => {

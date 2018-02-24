@@ -14,15 +14,17 @@ const handleDbResponse = (query, value) => {
 const dbStreamHandler = (keys, values, query, cb) => {
   if (keys && values) {
     return (data) => {
-      data.value = handleDbResponse(query, data.value);
-      cb(data);
+      const value = handleDbResponse(query, data.value.parsed);
+      cb({ key: data.key, value });
     };
   }
   if (!values) {
     return (key) => cb({ key });
   }
   if (!keys) {
-    return (value) => cb({ value: handleDbResponse(query, value) });
+    return (data) => {
+      cb({ value: handleDbResponse(query, data.parsed) });
+    };
   }
 };
 
@@ -41,9 +43,6 @@ module.exports = function createSubscribeFn(client, subscriptions) {
     keys = true,
     values = true,
     initialValue = true,
-    // If true, we will not subscribe to db changes, but instead stream out
-    // the results and then emit a { done: 1 } frame. This allows the client to
-    // do things like `forEach` once.
     once = false,
     query
   }, onAcknowledge) {
@@ -69,7 +68,10 @@ module.exports = function createSubscribeFn(client, subscriptions) {
         client.emit(eventId, data);
       };
       const bucketStream = (actionType) => (changeKey, newValue) => {
-        if (isInRange(changeKey)) {
+        if (
+          'undefined' !== typeof changeKey
+          && isInRange(changeKey)
+        ) {
           const frame = { key: changeKey, action: actionType };
           if (actionType !== 'del') {
             frame.value = handleDbResponse(query, newValue);
@@ -96,11 +98,11 @@ module.exports = function createSubscribeFn(client, subscriptions) {
       }
 
       const onPutDecode = bucketStream('put');
-      db.on('putDecode', onPutDecode);
+      db.on('put', onPutDecode);
       const onDelete = bucketStream('del');
       db.on('del', onDelete);
       subscriptions.set(eventId, function cleanup() {
-        db.removeListener('putDecode', onPutDecode);
+        db.removeListener('put', onPutDecode);
         db.removeListener('del', onDelete);
       });
     } else {
@@ -119,7 +121,7 @@ module.exports = function createSubscribeFn(client, subscriptions) {
         }
 
         // setup subscription
-        const putCb = async (key, value) => {
+        const putCb = async (key, { value }) => {
           const ignore = !watchEntireBucket && key !== keyToSubscribe;
           if (ignore) return;
           client.emit(
@@ -133,10 +135,10 @@ module.exports = function createSubscribeFn(client, subscriptions) {
           client.emit(eventId, { action: 'del', key });
         };
         subscriptions.set(eventId, function cleanup() {
-          db.removeListener('putDecode', putCb);
+          db.removeListener('put', putCb);
           db.removeListener('del', delCb);
         });
-        db.on('putDecode', putCb);
+        db.on('put', putCb);
         db.on('del', delCb);
       } catch(err) {
         if (err.type === 'NotFoundError') {

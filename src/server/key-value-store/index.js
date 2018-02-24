@@ -1,12 +1,16 @@
-// TODO: if we're not mapping the value, then we can pipe the result directly instead of parsing it first #db.get #db.createReadStream
+// TODO: use custom encoding for client db and default to vanilla for all others.
 
 const delDir = require('del');
 const LevelUp = require('levelup');
 const leveldown = require('leveldown');
 const encode = require('encoding-down');
 const fs = require('fs-extra');
+const {
+  dbGlobalCache,
+  dbGlobalCacheKeyMap
+} = require('./global-cache');
 
-const dbsCache = require('lru-cache')({
+const dbsOpened = require('lru-cache')({
   max: 100,
   dispose: (key, val) => {
     val.then(db => db.close())
@@ -22,36 +26,23 @@ function kvError({ msg, type }) {
   }
 }
 
+// NOTE: Base class for all databases. Has some built in defaults to make it a bit easier to use.
 class KV extends LevelUp {
   constructor(db, rootDir) {
     super(db);
     this.rootDir = rootDir;
 
-    this.codecs = this._db.codec.opts;
-    const { decode } = this.codecs.valueEncoding;
-    let decodeListenersCount = 0;
-    this.on('newListener', (event) => {
-      if (event === 'putDecode') {
-        decodeListenersCount++;
-      }
-    });
-    this.on('removeListener', (event) => {
-      if (event === 'putDecode') {
-        decodeListenersCount--;
-      }
-    });
-    this.on('put', (k, v) => {
-      if (decodeListenersCount) {
-        const value = decode(v);
-        this.emit('putDecode', k, value);
-      }
-    });
+    const cleanup = () => {
+      dbGlobalCacheKeyMap
+        .deleteKey(this.rootDir);
+    };
+    this.on('closing', cleanup);
   }
 
   async drop() {
     try {
       await new Promise((resolve) => {
-        this.db.close(resolve);
+        this.close(resolve);
       });
       await this.reset();
       return { ok: 1 };
@@ -66,8 +57,18 @@ class KV extends LevelUp {
   }
 }
 
+const KVProto = KV.prototype;
+
+const putProto = LevelUp.prototype.put;
+KVProto.put = function invalidateCacheOnPut(key, value, options, callback) {
+  const encodedKey = dbGlobalCacheKeyMap.encode(this.rootDir, key);
+  // invalidate cache
+  dbGlobalCache.del(encodedKey);
+  return putProto.call(this, key, value, options, callback);
+};
+
 const hasKeyThenHandler = res => !!res;
-KV.prototype.hasKey = function(key) {
+KVProto.hasKey = function(key) {
   return new Promise((resolve, reject) => {
     this.iterator({ gte: key, lte: key }, {
       onNext: resolve,
@@ -77,7 +78,27 @@ KV.prototype.hasKey = function(key) {
   }).then(hasKeyThenHandler);
 };
 
-KV.prototype.iterator = require('./iterator');
+KVProto.iterator = require('./iterator');
+
+const getProto = LevelUp.prototype.get;
+const getOptions = { fillCache: false };
+KVProto.get = function getWithGlobalCache(key) {
+  const encodedKey = dbGlobalCacheKeyMap.encode(this.rootDir, key);
+  const fromCache = dbGlobalCache.get(encodedKey);
+  if (fromCache) {
+    return fromCache.value;
+  }
+  const handleGetResult = data => {
+    const { parsed, raw } = data;
+    dbGlobalCache.set(encodedKey, {
+      value: parsed,
+      size: Buffer.byteLength(raw + encodedKey)
+    });
+    return parsed;
+  };
+  return getProto.call(this, key, getOptions)
+    .then(handleGetResult);
+};
 
 /*
   NOTE: the initialization is done asynchronously, but in order to do proper
@@ -86,8 +107,11 @@ KV.prototype.iterator = require('./iterator');
   initialization happens before ther previous request has finished, we can
   return the in-flight request.
  */
-const init = (rootDir, options = {}) => {
-  const fromCache = dbsCache.get(rootDir);
+const createInstance = (rootDir, options = {}) => {
+  if (process.env.NODE_ENV === 'test') {
+    rootDir = '/tmp/test' + rootDir;
+  }
+  const fromCache = dbsOpened.get(rootDir);
   if (fromCache) {
     return fromCache();
   }
@@ -98,23 +122,29 @@ const init = (rootDir, options = {}) => {
     } catch(err) {
       return reject(err);
     }
+    const dbConfig = {
+      // set a very small cache since we're using a single
+      // globally shared cache. (file: global-cache.js)
+      cacheSize: require('bytes')('500KB')
+    };
     const dataDb = encode(
-      leveldown(rootDir),
+      leveldown(rootDir, dbConfig),
       options.encoding || {}
     );
-    const dataLevel = new KV(dataDb, rootDir);
+    const dataLevel = new KV(dataDb, rootDir, options);
     resolve(dataLevel);
   });
   const cacheHandler = db => {
     if (db.isClosed()) {
-      return init(rootDir, options);
+      return createInstance(rootDir, options);
     }
     return db;
   };
-  dbsCache.set(rootDir, () => {
+  dbsOpened.set(rootDir, () => {
     return dbPromise.then(cacheHandler);
   });
   return dbPromise;
 };
 
-module.exports = init;
+module.exports = createInstance;
+module.exports.dbsOpened = dbsOpened;

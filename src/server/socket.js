@@ -1,40 +1,26 @@
 // TODO: add syncing support. Syncing works by syncing the db files #mvp
+// TODO: add support for built-in data types so we can set a default value if it doesn't already exist. For this to work, the developer will also have to pass in a `type` property for write operations.
 // TODO: user permissions #mvp
 // TODO: user management #enhancement
 // TODO: add file upload support #enhancement
 // TODO: add support for *key* filtering to `db.on`. Right now, each subscription function gets called whenever the database changes. #performance
 // TODO: add support for server-side functions #enhancement
 // TODO: add support for batch writes. This way when syncing happens, change events will be throttled. #performance #leveldb.batch
-// TODO: watch '_data' folder and close the database if folder gets deleted
-const KV = require('./key-value-store');
 const getDbClient = require('./api/get-db');
 const Debug = require('debug');
 const { AccessToken } = require('./login');
-const shortid = require('shortid');
 const queryData = require('../isomorphic/query-data');
-const delim = require('./api/delim');
-const Now = require('performance-now');
-const { dbBasePath } = require('./config');
+const { encodeData } = require('./key-value-store/codecs');
 const debug = {
   checkToken: Debug('evds.socket.checkToken'),
   patch: Debug('evds.db.patch'),
   stream: Debug('evds.db.stream')
 };
+const dbLog = require('./api/op-log');
 const getTokenFromSocket = (socket) =>
   socket.handshake.query.token;
 
 const io = require('socket.io')();
-
-// NOTE: if we're running multiple instances, this allows us to guarantee uniqueness across processes.
-const logIdSeed = shortid.generate();
-const dbLog = {
-  async addEntry({ bucket, key, actionType, value = '' }) {
-    const db = await KV(dbBasePath({ bucket: '_oplog' }));
-    // current time in microseconds. (source)[https://stackoverflow.com/questions/11725691/how-to-get-a-microtime-in-node-js]
-    const uid = (Date.now() + Now()) * 10000 + '_' + logIdSeed;
-    db.put(uid, `dbLog\n${bucket}\n${key}\n${actionType}${delim.v}${value}`);
-  },
-};
 
 const createSubscribeFn = require('./api/subscribe-fn.js');
 
@@ -47,8 +33,8 @@ io.on('connection', (client) => {
     try {
       await AccessToken.verify(token);
     } catch(error) {
-      client.emit(error.type, error.message);
-      return next();
+      // client.emit(error.type, error.message);
+      return next(new Error(error.message));
     }
     next();
   });
@@ -62,6 +48,7 @@ io.on('connection', (client) => {
     onSubscribe(params, callback);
   });
 
+  // TODO: set `fillCache` option to `false` and use a globally shared cache for all stores. This way we can properly manage the caches instead of having each store manage it.
   async function dbGet ({ bucket, key, query }, fn) {
     try {
       const db = await getDbClient(bucket);
@@ -110,18 +97,20 @@ io.on('connection', (client) => {
     });
   });
 
-  const dbPut = require('./api/db-put')(dbLog);
+  // TODO: add logging to this method #mvp
+  const dbPut = require('./api/db-put');
   client.on('put', dbPut);
 
   const { applyReducer } = require('fast-json-patch');
   const dbPatch = async (data, fn) => {
-    const { bucket, key, ops } = data;
+    const { bucket, key, ops: patchObject } = data;
     try {
       const db = await getDbClient(bucket);
       const curValue = await db.get(key);
-      const parsedOps = JSON.parse(ops);
-      const patchResult = parsedOps.reduce(applyReducer, curValue);
-      await dbPut({ bucket, key, value: patchResult, patch: ops });
+      dbLog.addEntry({ bucket, key, actionType: 'patch', value: JSON.stringify(patchObject) });
+      const patchResult = patchObject.reduce(applyReducer, curValue);
+      const putValue = { type: 'json', value: patchResult };
+      await db.put(key, putValue);
       fn({});
     } catch(err) {
       debug.patch(err);
@@ -134,7 +123,7 @@ io.on('connection', (client) => {
   const dbInspect = async ({ bucket, query }, ack) => {
     const response = {};
     const onData = (data) => {
-      response[data.key] = data.value;
+      response[data.key] = data.value.parsed;
     };
     const db = await getDbClient(bucket);
     const stream = db.createReadStream();

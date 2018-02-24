@@ -2,37 +2,26 @@
 
 const crypto = require('crypto');
 const ms = require('ms');
-const KV = require('../key-value-store');
-const { dbBasePath } = require('../config');
-const sessionsDb = () => KV(dbBasePath({ bucket: '_sessions' }), {
-  encoding: {
-    valueEncoding: 'json'
-  }
-});
-
-const cache = require('lru-cache')({ max: 100000 });
+const getDbClient = require('../api/get-db');
+const sessionsDb = () => getDbClient('_sessions');
 
 // grabs from cache first, then db if needed
 const db = {
   async add(token) {
     const { tokenId, userId, expiresAt } = token;
     const fullToken = { tokenId, userId, expiresAt };
+    const putValue = { type: 'json', value: fullToken };
 
     try {
       (await sessionsDb())
-        .put(tokenId, fullToken);
+        .put(tokenId, putValue);
     } catch(err) {
       console.log(err);
       throw 'error adding token to db';
     }
-    cache.set(tokenId, token);
     return token;
   },
   async get(tokenId) {
-    const fromCache = cache.get(tokenId) || null;
-    if (fromCache) {
-      return fromCache;
-    }
     try {
       const db = await sessionsDb();
       const fromDb = await db.get(tokenId);
@@ -47,7 +36,6 @@ const db = {
   async delete(tokenId) {
     try {
       (await sessionsDb()).del(tokenId);
-      cache.del(tokenId);
     } catch (err) {
       console.log(err);
     }

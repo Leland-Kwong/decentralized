@@ -7,8 +7,7 @@ export default function inspect(params = {}, callback) {
   this.subscribe({
     bucket,
     limit: 1
-  }, () => {},
-  () => {
+  }, () => {
     this.socket.emit('inspect.db', { bucket, query }, _callback);
   });
 }

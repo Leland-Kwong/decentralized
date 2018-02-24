@@ -1,5 +1,12 @@
 /* global test */
-import { sessionsDb, create, getByTokenId, destroy, verify, refresh } from './token';
+import {
+  sessionsDb,
+  create,
+  getByTokenId,
+  destroy,
+  verify,
+  refresh
+} from '../src/server/login/token';
 import ms from 'ms';
 
 const userId = 1234;
@@ -13,11 +20,9 @@ const createToken = (options = {}) => {
   });
 };
 
-afterEach(async () => {
-  const sessionTokens = await sessionsDb();
-  await sessionTokens.drop();
+afterAll(async () => {
+  await (await sessionsDb()).drop();
 });
-jest.useFakeTimers();
 
 describe('auth token methods', () => {
 
@@ -27,6 +32,7 @@ describe('auth token methods', () => {
     expect(typeof token.tokenId).toBe('string');
     expect(token.userId).toBe(userId);
     expect(typeof token.expiresAt).toBe('number');
+    // await dropDb();
   });
 
   test('creates a unique token each time', async () => {
@@ -85,19 +91,7 @@ it('verifies auth token', async () => {
 });
 
 test('creates multiple tokens with same userId - handle multiple browsers', async () => {
-  await createToken({ userId });
-  await createToken({ userId });
-  const sessionTokens = await sessionsDb();
-  const tokens = [];
-  try {
-    await new Promise((resolve, reject) => {
-      const stream = sessionTokens.createReadStream();
-      stream.on('data', (data) => tokens.push(data));
-      stream.on('end', resolve);
-      stream.on('error', reject);
-    });
-    expect(tokens.length).toBe(2);
-  } catch(err) {
-    console.log(err);
-  }
+  const t1 = await createToken({ userId });
+  const t2 = await createToken({ userId });
+  expect(t1.tokenId !== t2.tokenId).toBe(true);
 });

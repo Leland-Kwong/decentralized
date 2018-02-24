@@ -22,6 +22,13 @@ function queryData(query, data) {
   const document = 'object' === typeof query
     ? query.document
     : query;
+
+  const noQueryDocument = 'undefined' === typeof document;
+  if (noQueryDocument) {
+    // default to no querying for undefined documents
+    return data;
+  }
+
   const variables = query.variables;
   return query
     ? graphql(defaultResolver, gql(document), data, null, variables)

@@ -329,8 +329,7 @@ Object.assign(Socket.prototype, {
       NOTE: send data pre-stringified so we don't have to stringify it again for
       the oplog.
      */
-    const opsAsString = JSON.stringify(patch);
-    socket.emit('patch', { bucket, key, ops: opsAsString }, callback);
+    socket.emit('patch', { bucket, key, ops: patch }, callback);
     return callback.promise;
   },
 

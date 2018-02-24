@@ -1,27 +1,20 @@
 const getDbClient = require('./get-db');
-const delim = require('./delim');
+const dbLog = require('./op-log');
+const { encodeData } = require('../key-value-store/codecs');
 
-const normalizePut = (value) => {
-  if (value && typeof value === 'object') {
-    return ['json', JSON.stringify(value)];
-  }
-  return ['string', value];
-};
-
-module.exports = dbLog => async function dbPut(data, fn) {
+module.exports = async function dbPut(data, fn) {
   const {
     bucket,
     key,
     value,
-    patch
   } = data;
   const db = await getDbClient(bucket);
-  const [type, normalizedValue] = normalizePut(value);
-
-  const putValue = `${type}${delim.v}${normalizedValue}`;
-  const logValue = patch ? `${type}${delim.v}${patch}` : putValue;
-  const actionType = patch ? 'patch' : 'put';
-  dbLog.addEntry({ bucket, key, actionType, value: logValue });
+  const type = (value && (typeof value === 'object'))
+    ? 'json'
+    : 'string';
+  // pre-encode the value so we can log it
+  const putValue = encodeData({ type, value });
+  dbLog.addEntry({ bucket, key, actionType: 'put', value: putValue });
   try {
     await db.put(key, putValue);
     fn && fn({});

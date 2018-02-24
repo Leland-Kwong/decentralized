@@ -1,22 +1,27 @@
 const KV = require('../key-value-store');
 const { dbBasePath } = require('../config');
 const parseGet = require('./parse-get');
+const { encodeData } = require('../key-value-store/codecs');
 
 const dbClientConfig = {
+  type: 'client',
   encoding: {
     valueEncoding: {
       type: 'multi',
       buffer: false,
-      // TODO: setup encoder for writes
-      encode: data => data,
+      encode: encodeData,
+      // TODO: consider removing auto-decoding and let `get` and `createReadStream` functions handle them. This gives us the ability to cache parsed results which will save on cpu for read streams.
       decode: data => {
-        return parseGet(data);
+        return {
+          parsed: parseGet(data),
+          raw: data
+        };
       }
     }
   }
 };
 // databases used for api calls from client
-const getDbClient = (bucket) => {
-  return KV(dbBasePath({ bucket }), dbClientConfig);
+const getDbClient = async (bucket) => {
+  return await KV(dbBasePath({ bucket }), dbClientConfig);
 };
 module.exports = getDbClient;

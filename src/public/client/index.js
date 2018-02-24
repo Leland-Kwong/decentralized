@@ -94,24 +94,15 @@ class LoginForm extends Component {
   }
 }
 
-function testData(authToken) {
-  const db = new Socket({ token: authToken });
-  let count = 0;
-  db.subscribe({
-    bucket: '_opLog',
-    // values: false,
-    reverse: true,
-    limit: 2,
-    once: true
-  }, (data) => {
-    if (count === 0) {
-      console.log('oplog data', data);
-    }
-    count++;
-  }, () => {
-    console.log('oplog count', count);
-    count = 0;
-  });
+function checkOpLog(db) {
+  db.bucket('_opLog')
+    .inspect({}, res => {
+      console.log('[OPLOG]', res, Object.keys(res.value).length);
+    });
+  db.bucket('_sessions')
+    .inspect(res => {
+      console.log('[SESSIONS]', res);
+    });
 }
 
 function startApp() {
@@ -128,14 +119,10 @@ function startApp() {
 
     componentDidMount() {
       const { token } = this.props;
-      testData(token);
       sockClient = new Socket({ token, enableOffline: true });
       const clientNoOffline = new Socket({ token });
-
+      checkOpLog(clientNoOffline);
       const testBucket = clientNoOffline.bucket('leland.list');
-      testBucket.inspect({}, res => {
-        console.log(res.value);
-      });
       console.log(
         testBucket,
         testBucket.key('blah'),
@@ -215,39 +202,6 @@ function startApp() {
         console.log('leland.chat', data);
       });
 
-      // sockClient.subscribe({
-      //   bucket: 'leland.chat',
-      //   key: 'message',
-      //   query: /* GraphQL */`
-      //     { message }
-      //   `
-      // }, ({ value }) => {
-      //   console.log('query', value);
-      // });
-
-      sockClient.get({
-        bucket: 'leland.chat',
-        key: 'message',
-        query: {
-          document: /* GraphQL */`
-            {
-              itemCount: foo {
-                length: list(length: true)
-              }
-              partialList: foo {
-                list(slice: $slice)
-              }
-            }
-          `,
-          variables: {
-            slice: [-1]
-          }
-        }
-      }).catch(err => console.error(err))
-        .then(value => {
-          console.log('get', value);
-        });
-
       let items;
       sockClient.subscribe({
         bucket: 'leland.list',
@@ -263,19 +217,6 @@ function startApp() {
         this.setState({ items });
         items = null;
       });
-
-      // let count = 0;
-      // sockClient.subscribe({
-      //   bucket: 'leland.list',
-      //   keys: false
-      //   // limit: 3,
-      //   // reverse: true
-      // }, () => {
-      //   count++;
-      // }, () => {
-      //   console.log('leland.list.done', count);
-      //   count = 0;
-      // });
     }
 
     setMessage(value) {
@@ -283,7 +224,13 @@ function startApp() {
       this.setMessageUpdateServer(value);
     }
 
-    setMessageUpdateServer = debounce((value) => {
+    setMessageUpdateServer = debounce(function update(value) {
+      sockClient.put({
+        bucket: 'leland.chat',
+        key: 'json_message',
+        value: { value }
+      });
+
       sockClient.patch({
         bucket: 'leland.chat',
         key: 'message',
@@ -291,15 +238,26 @@ function startApp() {
           { op: 'add', path: '/message', value },
           { op: 'add', path: '/nested', value: {} },
           { op: 'add', path: '/nested/value', value },
+          { op: 'add', path: '/foo', value: { list: ['bar', 'none', 'ok'] } },
           // { op: 'add', path: '/foo/list/3', value: 'blah' },
           // { op: 'move', from: '/foo/list/1', path: '/foo/list/0' }
           // { op: 'replace', path: '/foo/list', value: ['bar', 'none', 'ok'] },
         ]
-      }).catch(err => console.error(err));
+      }).catch(err => {
+        console.error(err);
+        sockClient.put({
+          bucket: 'leland.chat',
+          key: 'message',
+          value: {}
+        }).catch(error => console.error(error))
+          .then(() => {
+            update(value);
+          });
+      });
     }, 500)
 
     handleLogout = () => {
-      auth.logout.catch(err => console.error(err))
+      auth.logout().catch(err => console.error(err))
         .then(res => console.log(res));
       sockClient.close();
       this.props.onLogout();
@@ -317,12 +275,11 @@ function startApp() {
         [key]: value
       };
       this.setState({ message: '' });
+      this.setState({ items });
       sockClient.put({
         bucket: 'leland.list',
         key,
         value
-      }).then(() => {
-        this.setState({ items });
       });
     }
 
