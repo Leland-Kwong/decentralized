@@ -1,4 +1,4 @@
-const getDbClient = require('../src/server/api/get-db');
+const getDbClient = require('../src/server/modules/get-db');
 
 describe('db shared cache', () => {
   test('get', async () => {

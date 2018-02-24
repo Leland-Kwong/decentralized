@@ -1,4 +1,3 @@
-// TODO: only have one socket connection open at any given time.
 // TODO: during server syncing, we should also grab all change events from the oplog
 // TODO: add support for bucket mutation events for granular bucket observing. #mvp #performance
 // TODO: add support for listener removal for subscribers and offline listeners #mvp
@@ -132,6 +131,7 @@ Object.assign(Socket.prototype, {
   },
 
   subscribeBucket(params, cb, onAcknowledge, onComplete) {
+    const args = arguments;
     const { socket, enableOffline } = this;
     const {
       bucket,
@@ -202,20 +202,26 @@ Object.assign(Socket.prototype, {
       subscribeOptions,
       onAcknowledge
     );
-    socket.on('reconnect', () => {
-      socket.emit('subscribe', subscribeOptions, onSubscribeBucket);
-    });
-    this.offlineEmitter.on(bucket, '*', (data) => {
+    const onOfflineBucketChange = (data) => {
       console.log('lucidbyte.offline.subscribeBucket', data);
       const iterateFn = ({ key, value }) => {
         cb({ value: queryData(query, value), key });
       };
       getBucketFromLocalDb(bucket, params, iterateFn, onComplete);
-    });
+    };
+    const cleanupOfflineEmitter =
+      this.offlineEmitter.on(bucket, '*', onOfflineBucketChange);
     this.triggerCallbackIfOffline(cb, params, onComplete);
+    socket.once('disconnect', () => {
+      socket.once('reconnect', () => {
+        cleanupOfflineEmitter();
+        this.subscribeBucket(...args);
+      });
+    });
   },
 
-  subscribeKey(params, onAcknowledge, subscriber) {
+  subscribeKey(params, subscriber, onAcknowledge) {
+    const args = arguments;
     const { socket } = this;
     const { bucket, key, once } = params;
     const eventId =
@@ -234,17 +240,22 @@ Object.assign(Socket.prototype, {
       params,
       onAcknowledge
     );
-    socket.on('reconnect', () => {
-      socket.emit('subscribe', params, subscriber);
-    });
-    this.offlineEmitter.on(bucket, key, (data) => {
-      console.log('lucidbyte.offline.subscribe', data);
-      subscriber(data);
-    });
+    const cleanupOfflineEmitter =
+      this.offlineEmitter.on(bucket, key, (data) => {
+        console.log('lucidbyte.offline.subscribe', data);
+        subscriber(data);
+      });
     this.triggerCallbackIfOffline(subscriber, params);
+    socket.once('disconnect', () => {
+      socket.once('reconnect', () => {
+        this.subscribeKey(...args);
+        cleanupOfflineEmitter();
+      });
+    });
   },
 
   subscribe(params, subscriber, onComplete = noop, onAcknowledge = noop) {
+    params.bucket = params.bucket || this._bucket;
     const { bucket, key } = params;
     require('debug')('lucidbyte.subscribe')(bucket, key);
     if (typeof params.key === 'undefined') {

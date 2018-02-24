@@ -118,6 +118,7 @@ export const requestAccessToken = (loginCode) => {
     });
 };
 
+// FIXME: logout is erroring out for some reason
 export const logout = () => {
   const token = session.get().accessToken;
   session.end();

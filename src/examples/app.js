@@ -97,7 +97,7 @@ class LoginForm extends Component {
 function checkOpLog(db) {
   db.bucket('_opLog')
     .inspect({}, res => {
-      console.log('[OPLOG]', res, Object.keys(res.value).length);
+      console.log('[OPLOG]', res);
     });
   db.bucket('_sessions')
     .inspect(res => {
@@ -119,7 +119,7 @@ function startApp() {
 
     componentDidMount() {
       const { token } = this.props;
-      sockClient = new Socket({ token, enableOffline: true });
+      sockClient = new Socket({ token, enableOffline: false });
       const clientNoOffline = new Socket({ token });
       checkOpLog(clientNoOffline);
       const testBucket = clientNoOffline.bucket('leland.list');
@@ -197,9 +197,10 @@ function startApp() {
       this.setState({ started: true });
 
       sockClient.subscribe({
-        bucket: 'leland.chat'
+        bucket: 'leland.chat',
+        key: 'json_message',
       }, (data) => {
-        console.log('leland.chat', data);
+        console.log('leland.chat.json_message', data);
       });
 
       let items;

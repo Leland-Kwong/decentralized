@@ -2,7 +2,7 @@
 
 const crypto = require('crypto');
 const ms = require('ms');
-const getDbClient = require('../api/get-db');
+const getDbClient = require('../modules/get-db');
 const sessionsDb = () => getDbClient('_sessions');
 
 // grabs from cache first, then db if needed

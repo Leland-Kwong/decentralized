@@ -1,5 +1,4 @@
-import decodeData from './codecs';
-import genList from 'genlist';
+import { decodeData } from '../src/server/key-value-store/codecs';
 
 test('parse db data', () => {
   const chance = require('chance')();
@@ -7,7 +6,7 @@ test('parse db data', () => {
   const bucket = 'joe.chat';
   const value = JSON.stringify({
     foo: 'bar',
-    paras: genList(1, () => chance.paragraph())
+    paras: [chance.paragraph()]
   });
   const data = `${type}\n${bucket}\n\n${value}`;
   const result = decodeData(data);

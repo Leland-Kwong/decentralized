@@ -1,5 +1,6 @@
 // TODO: use custom encoding for client db and default to vanilla for all others.
 
+const path = require('path');
 const delDir = require('del');
 const LevelUp = require('levelup');
 const leveldown = require('leveldown');
@@ -28,8 +29,13 @@ function kvError({ msg, type }) {
 
 // NOTE: Base class for all databases. Has some built in defaults to make it a bit easier to use.
 class KV extends LevelUp {
-  constructor(db, rootDir) {
+  constructor(db, rootDir, options) {
     super(db);
+    const {
+      bucket = '',
+      onOpened
+    } = options;
+    this.bucket = bucket;
     this.rootDir = rootDir;
 
     const cleanup = () => {
@@ -37,6 +43,8 @@ class KV extends LevelUp {
         .deleteKey(this.rootDir);
     };
     this.on('closing', cleanup);
+    onOpened &&
+      this.on('open', () => onOpened(this));
   }
 
   async drop() {
@@ -61,9 +69,12 @@ const KVProto = KV.prototype;
 
 const putProto = LevelUp.prototype.put;
 KVProto.put = function invalidateCacheOnPut(key, value, options, callback) {
-  const encodedKey = dbGlobalCacheKeyMap.encode(this.rootDir, key);
-  // invalidate cache
-  dbGlobalCache.del(encodedKey);
+  const hasEncodedKey = dbGlobalCacheKeyMap.has(this.rootDir);
+  if (hasEncodedKey) {
+    const encodedKey = dbGlobalCacheKeyMap.encode(this.rootDir, key);
+    // invalidate cache
+    dbGlobalCache.del(encodedKey);
+  }
   return putProto.call(this, key, value, options, callback);
 };
 
@@ -108,17 +119,18 @@ KVProto.get = function getWithGlobalCache(key) {
   return the in-flight request.
  */
 const createInstance = (rootDir, options = {}) => {
+  let dbPath = path.join(rootDir, options.bucket);
   if (process.env.NODE_ENV === 'test') {
-    rootDir = '/tmp/test' + rootDir;
+    dbPath = '/tmp/test' + dbPath;
   }
-  const fromCache = dbsOpened.get(rootDir);
+  const fromCache = dbsOpened.get(dbPath);
   if (fromCache) {
     return fromCache();
   }
   const dbPromise = new Promise(async (resolve, reject) => {
     // recursively setup directory
     try {
-      await fs.ensureDir(rootDir);
+      await fs.ensureDir(dbPath);
     } catch(err) {
       return reject(err);
     }
@@ -128,19 +140,19 @@ const createInstance = (rootDir, options = {}) => {
       cacheSize: require('bytes')('500KB')
     };
     const dataDb = encode(
-      leveldown(rootDir, dbConfig),
+      leveldown(dbPath, dbConfig),
       options.encoding || {}
     );
-    const dataLevel = new KV(dataDb, rootDir, options);
+    const dataLevel = new KV(dataDb, dbPath, options);
     resolve(dataLevel);
   });
   const cacheHandler = db => {
     if (db.isClosed()) {
-      return createInstance(rootDir, options);
+      return createInstance(dbPath, options);
     }
     return db;
   };
-  dbsOpened.set(rootDir, () => {
+  dbsOpened.set(dbPath, () => {
     return dbPromise.then(cacheHandler);
   });
   return dbPromise;

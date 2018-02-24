@@ -41,12 +41,8 @@ const decodeData = (data) => {
   };
 };
 
-const delim = require('../api/delim');
-const encodeData = (input) => {
-  const isAlreadyEncoded = 'string' === typeof input;
-  if (isAlreadyEncoded) {
-    return input;
-  }
+const delim = require('../modules/delim');
+const encodeData = (input = {}) => {
   const { type, value, meta = '' } = input;
   if ('undefined' === typeof value) {
     throw new Error('put expects a \`value\` property, received \`undefined\`');

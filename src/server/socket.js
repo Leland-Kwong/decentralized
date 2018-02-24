@@ -3,25 +3,25 @@
 // TODO: user permissions #mvp
 // TODO: user management #enhancement
 // TODO: add file upload support #enhancement
-// TODO: add support for *key* filtering to `db.on`. Right now, each subscription function gets called whenever the database changes. #performance
+// TODO: add support for *key* filtering to `db.on('put')` when watching a keypath of {bucket}/{key}. Right now, each subscription function gets called whenever the bucket changes. #performance
 // TODO: add support for server-side functions #enhancement
 // TODO: add support for batch writes. This way when syncing happens, change events will be throttled. #performance #leveldb.batch
-const getDbClient = require('./api/get-db');
+const getDbClient = require('./modules/get-db');
 const Debug = require('debug');
 const { AccessToken } = require('./login');
 const queryData = require('../isomorphic/query-data');
+const dbNsEvent = require('./modules/db-ns-event');
 const debug = {
   checkToken: Debug('evds.socket.checkToken'),
   patch: Debug('evds.db.patch'),
   stream: Debug('evds.db.stream')
 };
-const dbLog = require('./api/op-log');
 const getTokenFromSocket = (socket) =>
   socket.handshake.query.token;
 
 const io = require('socket.io')();
 
-const createSubscribeFn = require('./api/subscribe-fn.js');
+const createSubscribeFn = require('./modules/subscribe-fn.js');
 
 io.on('connection', (client) => {
   require('debug')('evds.server.start.pid')(process.pid);
@@ -67,13 +67,14 @@ io.on('connection', (client) => {
 
   const dbDelete = async ({ bucket, key }, fn) => {
     const db = await getDbClient(bucket);
-    dbLog.addEntry({ bucket, key, actionType: 'delete' });
     const deleteEntireBucket = typeof key === 'undefined';
     try {
       if (deleteEntireBucket) {
         await db.drop();
       } else {
         await db.del(key);
+        const event = dbNsEvent('del', bucket, key);
+        db.emit(event, key);
       }
       fn({});
     } catch(err) {
@@ -97,7 +98,7 @@ io.on('connection', (client) => {
   });
 
   // TODO: add logging to this method #mvp
-  const dbPut = require('./api/db-put');
+  const dbPut = require('./modules/db-put');
   client.on('put', dbPut);
 
   const { applyReducer } = require('fast-json-patch');
@@ -106,9 +107,15 @@ io.on('connection', (client) => {
     try {
       const db = await getDbClient(bucket);
       const curValue = await db.get(key);
-      dbLog.addEntry({ bucket, key, actionType: 'patch', value: JSON.stringify(patchObject) });
+      const actionType = 'patch';
       const patchResult = patchObject.reduce(applyReducer, curValue);
-      const putValue = { type: 'json', value: patchResult };
+      const putValue = {
+        type: 'json',
+        value: patchResult,
+        patch: patchObject,
+        actionType,
+        bucket
+      };
       await db.put(key, putValue);
       fn({});
     } catch(err) {

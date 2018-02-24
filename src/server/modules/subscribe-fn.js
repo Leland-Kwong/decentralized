@@ -1,6 +1,7 @@
 const queryData = require('../../isomorphic/query-data');
 const getDbClient = require('./get-db');
 const Debug = require('debug');
+const dbNsEvent = require('./db-ns-event');
 
 const debug = {
   streamError: Debug('evds.streamError'),
@@ -121,25 +122,28 @@ module.exports = function createSubscribeFn(client, subscriptions) {
         }
 
         // setup subscription
-        const putCb = async (key, { value }) => {
+        const onPut = async (key, { value }) => {
           const ignore = !watchEntireBucket && key !== keyToSubscribe;
+          ignore && console.log(keyToSubscribe, key);
           if (ignore) return;
           client.emit(
             eventId,
             { action: 'put', key, value: queryData(query, value) }
           );
         };
-        const delCb = async (key) => {
+        const onDel = async (key) => {
           const ignore = !watchEntireBucket && key !== keyToSubscribe;
           if (ignore) return;
           client.emit(eventId, { action: 'del', key });
         };
+        const putEvent = dbNsEvent('put', bucket, key);
+        const delEvent = dbNsEvent('del', bucket, key);
         subscriptions.set(eventId, function cleanup() {
-          db.removeListener('put', putCb);
-          db.removeListener('del', delCb);
+          db.removeListener(putEvent, onPut);
+          db.removeListener(delEvent, onPut);
         });
-        db.on('put', putCb);
-        db.on('del', delCb);
+        db.on(putEvent, onPut);
+        db.on(delEvent, onDel);
       } catch(err) {
         if (err.type === 'NotFoundError') {
           return;

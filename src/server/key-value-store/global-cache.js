@@ -3,6 +3,7 @@ const delimChar = String.fromCharCode(215);
 const delim = ''.padStart(2, delimChar);
 const dbGlobalCacheKeyMap = {
   map: new Map(),
+  // use a memoizing function instead to make this vastly simpler
   encode(rootDir, key) {
     const charCodeFromCache = this.map.get(rootDir);
     const { size } = this.map;
@@ -17,13 +18,8 @@ const dbGlobalCacheKeyMap = {
     }
     return charCode + delim + key;
   },
-  decode(cacheKey) {
-    const [charCode, key] = cacheKey.split(delim);
-    const rootDirFromCharCode = this.map.get(charCode);
-    return {
-      rootDir: rootDirFromCharCode,
-      key
-    };
+  has(key) {
+    return this.map.has(key);
   },
   deleteKey(rootDir) {
     const { map } = this;
