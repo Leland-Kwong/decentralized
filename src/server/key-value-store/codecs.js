@@ -44,12 +44,15 @@ const decodeData = (data) => {
 const delim = require('../modules/delim');
 const encodeData = (input = {}) => {
   const { type, value, meta = '' } = input;
+  let normalizedValue;
   if ('undefined' === typeof value) {
-    throw new Error('put expects a \`value\` property, received \`undefined\`');
+    normalizedValue = '';
+  } else {
+    const isPlainObject = value && 'object' === typeof value;
+    normalizedValue = isPlainObject
+      ? JSON.stringify(value)
+      : value;
   }
-  const normalizedValue = type === 'json'
-    ? JSON.stringify(value)
-    : value;
   const metadata = meta ? `${HEADER_DELIM}${meta}` : '';
   const out = `${type}${metadata}${delim.v}${normalizedValue}`;
   return out;

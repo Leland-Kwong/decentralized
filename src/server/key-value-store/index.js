@@ -5,16 +5,17 @@ const delDir = require('del');
 const LevelUp = require('levelup');
 const leveldown = require('leveldown');
 const encode = require('encoding-down');
+const createDbId = require('../../isomorphic/lexicographic-id');
 const fs = require('fs-extra');
 const {
   dbGlobalCache,
-  dbGlobalCacheKeyMap
 } = require('./global-cache');
 
+const handleDbCacheDispose = db => db.close();
 const dbsOpened = require('lru-cache')({
   max: 100,
   dispose: (key, val) => {
-    val.then(db => db.close())
+    val().then(handleDbCacheDispose)
       .catch(console.error);
   }
 });
@@ -27,6 +28,8 @@ function kvError({ msg, type }) {
   }
 }
 
+const DB_ID = Symbol('alias');
+
 // NOTE: Base class for all databases. Has some built in defaults to make it a bit easier to use.
 class KV extends LevelUp {
   constructor(db, rootDir, options) {
@@ -36,13 +39,9 @@ class KV extends LevelUp {
       onOpened
     } = options;
     this.bucket = bucket;
+    this[DB_ID] = createDbId();
     this.rootDir = rootDir;
 
-    const cleanup = () => {
-      dbGlobalCacheKeyMap
-        .deleteKey(this.rootDir);
-    };
-    this.on('closing', cleanup);
     onOpened &&
       this.on('open', () => onOpened(this));
   }
@@ -67,13 +66,17 @@ class KV extends LevelUp {
 
 const KVProto = KV.prototype;
 
+KVProto.cacheKey = function(valueKey) {
+  return this[DB_ID] + '/' + valueKey;
+};
+
 const putProto = LevelUp.prototype.put;
 KVProto.put = function invalidateCacheOnPut(key, value, options, callback) {
-  const hasEncodedKey = dbGlobalCacheKeyMap.has(this.rootDir);
-  if (hasEncodedKey) {
-    const encodedKey = dbGlobalCacheKeyMap.encode(this.rootDir, key);
+  const path = this.cacheKey(key);
+  const hasCache = dbGlobalCache.get(path);
+  if (hasCache) {
     // invalidate cache
-    dbGlobalCache.del(encodedKey);
+    dbGlobalCache.del(path);
   }
   return putProto.call(this, key, value, options, callback);
 };
@@ -94,16 +97,16 @@ KVProto.iterator = require('./iterator');
 const getProto = LevelUp.prototype.get;
 const getOptions = { fillCache: false };
 KVProto.get = function getWithGlobalCache(key) {
-  const encodedKey = dbGlobalCacheKeyMap.encode(this.rootDir, key);
-  const fromCache = dbGlobalCache.get(encodedKey);
+  const path = this.cacheKey(key);
+  const fromCache = dbGlobalCache.get(path);
   if (fromCache) {
     return fromCache.value;
   }
   const handleGetResult = data => {
     const { parsed, raw } = data;
-    dbGlobalCache.set(encodedKey, {
+    dbGlobalCache.set(path, {
       value: parsed,
-      size: Buffer.byteLength(raw + encodedKey)
+      size: Buffer.byteLength(raw + path)
     });
     return parsed;
   };
@@ -135,16 +138,16 @@ const createInstance = (rootDir, options = {}) => {
       return reject(err);
     }
     const dbConfig = {
-      // set a very small cache since we're using a single
+      // disable cache since we're using a single
       // globally shared cache. (file: global-cache.js)
-      cacheSize: require('bytes')('500KB')
+      cacheSize: require('bytes')(0)
     };
     const dataDb = encode(
       leveldown(dbPath, dbConfig),
       options.encoding || {}
     );
-    const dataLevel = new KV(dataDb, dbPath, options);
-    resolve(dataLevel);
+    const db = new KV(dataDb, dbPath, options);
+    db.on('open', () => resolve(db));
   });
   const cacheHandler = db => {
     if (db.isClosed()) {

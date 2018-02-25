@@ -10,9 +10,9 @@
     }
   },
   "scripts": {
-    "start:dev": "NODE_ENV=dev BABEL_ENV=development parcel index.html",
+    "start:dev": "NODE_ENV=development BABEL_ENV=development parcel index.html",
     "start:staging": "NODE_ENV=staging parcel index.html",
-    "start": "node src/server/index",
+    "start:dev.server": "DEBUG=evds.* NODE_ENV=development nodemon src/server/index.js",
     "test": "jest",
     "deploy": "now --dotenv"
   },
@@ -38,6 +38,7 @@
     "level-errors": "^1.1.2",
     "leveldown": "^3.0.0",
     "levelup": "^2.0.2",
+    "lexicographic-integer": "^1.1.0",
     "lru-cache": "^4.1.1",
     "mailgun-js": "^0.16.0",
     "mem": "^3.0.0",

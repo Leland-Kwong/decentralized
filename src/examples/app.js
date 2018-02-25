@@ -7,6 +7,10 @@ import * as auth from '../public/client/auth';
 import session from '../public/client/session';
 import Input from './Input';
 import debounce from 'lodash.debounce';
+import { getTimeMS } from '../isomorphic/lexicographic-id';
+
+const log = (ns, ...rest) =>
+  console.log(`lucidbyte.client.${ns}`, ...rest);
 
 const $App = document.querySelector('#App');
 const { serverApiBaseRoute } = require('../public/client/config');
@@ -94,14 +98,25 @@ class LoginForm extends Component {
   }
 }
 
-function checkOpLog(db) {
+function tail(db) {
   db.bucket('_opLog')
-    .inspect({}, res => {
-      console.log('[OPLOG]', res);
+    .inspect({ limit: 1 }, res => {
+      const { key, value } = res;
+      log('[OPLOG]', {
+        key,
+        timestamp: new Date(getTimeMS(key)).toISOString(),
+        value
+      });
+    }, () => {
+      log('[OPLOG_END]', '---');
     });
   db.bucket('_sessions')
     .inspect(res => {
       console.log('[SESSIONS]', res);
+    });
+  db.bucket('leland.chat')
+    .inspect(res => {
+      console.log('[LELAND.CHAT]', res);
     });
 }
 
@@ -121,7 +136,7 @@ function startApp() {
       const { token } = this.props;
       sockClient = new Socket({ token, enableOffline: false });
       const clientNoOffline = new Socket({ token });
-      checkOpLog(clientNoOffline);
+      tail(clientNoOffline);
       const testBucket = clientNoOffline.bucket('leland.list');
       console.log(
         testBucket,
@@ -270,7 +285,7 @@ function startApp() {
       if (!value) {
         return;
       }
-      const key = Date.now();
+      const key = Date.now().toString();
       const items = {
         ...this.state.items,
         [key]: value
@@ -281,7 +296,7 @@ function startApp() {
         bucket: 'leland.list',
         key,
         value
-      });
+      }).catch(err => console.error(err));
     }
 
     removeItem = (key) => {

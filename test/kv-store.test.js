@@ -1,14 +1,13 @@
 const getDbClient = require('../src/server/modules/get-db');
+const { dbsOpened } = require('../src/server/key-value-store');
 
 describe('db shared cache', () => {
   test('get', async () => {
     const {
       dbGlobalCache,
-      dbGlobalCacheKeyMap
     } = require('../src/server/key-value-store/global-cache');
 
     dbGlobalCache.reset();
-    dbGlobalCacheKeyMap.map.clear();
 
     const bucket = 'get_shared_cache';
     const db = await getDbClient(bucket);
@@ -29,9 +28,18 @@ describe('db shared cache', () => {
 
     // before db drop
     expect(dbGlobalCache.keys().length).toBe(1);
-    expect(dbGlobalCacheKeyMap.map.size).toBe(2);
-    await db.drop();
-    // after db drop
-    expect(dbGlobalCacheKeyMap.map.size).toBe(0);
+
+    await db.put('foo2', { value: 'foo' });
+    await db.get('foo2');
+
+    console.log(dbGlobalCache);
+
+    // drop dbs
+    const entries = dbsOpened.dump();
+    await Promise.all(
+      entries.map(({ v: getDb }) => {
+        return getDb().then(db => db.drop());
+      })
+    );
   });
 });

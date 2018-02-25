@@ -1,3 +1,4 @@
+// TODO: make client isomorphic
 // TODO: during server syncing, we should also grab all change events from the oplog
 // TODO: add support for bucket mutation events for granular bucket observing. #mvp #performance
 // TODO: add support for listener removal for subscribers and offline listeners #mvp
@@ -24,7 +25,7 @@ const bucketsToIgnore = {
 };
 
 let debug = () => noop;
-if (process.env.NODE_ENV === 'dev') {
+if (process.env.NODE_ENV === 'development') {
   debug = require('debug');
 }
 

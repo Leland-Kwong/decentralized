@@ -4,8 +4,8 @@ const defaults = {
 };
 
 // tails the bucket
-export default function inspect(params = {}, callback) {
+export default function inspect(params = {}, callback, onComplete) {
   const options = Object.assign({}, defaults, callback ? params : {});
   const _callback = callback || params;
-  this.subscribe(options, _callback);
+  this.subscribe(options, _callback, onComplete);
 }

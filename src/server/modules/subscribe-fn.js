@@ -68,6 +68,8 @@ module.exports = function createSubscribeFn(client, subscriptions) {
       const onDataCallback = (data) => {
         client.emit(eventId, data);
       };
+      const options = { limit, reverse, keys, values, gt, lt, gte, lte };
+      const onData = dbStreamHandler(options.keys, options.values, query, onDataCallback);
       const bucketStream = (actionType) => (changeKey, newValue) => {
         if (
           'undefined' !== typeof changeKey
@@ -80,12 +82,8 @@ module.exports = function createSubscribeFn(client, subscriptions) {
           client.emit(eventId, frame);
         }
 
-        const options = { limit, reverse, keys, values, gt, lt, gte, lte };
         const stream = db.createReadStream(options);
-        stream.on(
-          'data',
-          dbStreamHandler(options.keys, options.values, query, onDataCallback)
-        );
+        stream.on('data', onData);
         stream.on('error', onStreamError);
         stream.on('end', onStreamEnd);
       };

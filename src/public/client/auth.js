@@ -65,7 +65,7 @@ export const scheduleTokenRefresh = ({
   if (!hasExpired) {
 
     // log session duration info
-    if (process.env.NODE_ENV === 'dev') {
+    if (process.env.NODE_ENV === 'development') {
       const MSToHours = (ms) =>
         Number((ms / msPerHour).toFixed(2));
 

@@ -2,7 +2,7 @@ const KV = require('../key-value-store');
 const { dbBasePath } = require('../config');
 const parseGet = require('./parse-get');
 const { encodeData } = require('../key-value-store/codecs');
-const dbLog = require('./op-log');
+const createEntryId = require('../../isomorphic/lexicographic-id');
 
 const encoding = {
   valueEncoding: {
@@ -25,18 +25,26 @@ const getDbClient = async (config) => {
 };
 
 const logDb = getDbClient({ bucket: '_opLog', encoding });
-const logger = dbLog(logDb);
+const PUT_TYPE = 'dbLog';
+function onLogAdded(err) {
+  if (err) console.error(err);
+}
 async function addLogEntry(key, changeData) {
-  const { bucket, actionType, patch } = changeData;
+  const { bucket, actionType, patch, value } = changeData;
 
-  if (actionType === 'del') {
-    logger({ bucket, key, actionType });
-  } else if (actionType === 'patch') {
-    logger({ bucket, key, actionType, value: JSON.stringify(patch) });
-  } else {
-    const encodedValue = encodeData(changeData);
-    logger({ bucket, key, actionType, value: encodedValue });
+  const putValue = {
+    type: PUT_TYPE,
+    meta: `${bucket}\n${key}\n${actionType}`,
+  };
+
+  const entryId = createEntryId();
+  if (actionType === 'patch') {
+    putValue.value = patch;
+  } else if (actionType === 'put') {
+    putValue.value = value;
   }
+
+  (await logDb).put(entryId, putValue, onLogAdded);
 }
 
 function logChanges(db) {

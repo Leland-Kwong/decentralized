@@ -1,5 +1,6 @@
 const getDbClient = require('./get-db');
 const dbNsEvent = require('./db-ns-event');
+const { validate } = require('./validate-mutation');
 
 module.exports = async function dbPut(data, fn) {
   const {
@@ -7,6 +8,14 @@ module.exports = async function dbPut(data, fn) {
     key,
     value,
   } = data;
+  // validate input
+  if (process.env.NODE_ENV === 'development') {
+    try {
+      validate(bucket, key);
+    } catch(err) {
+      return fn({ error: err.message, type: 'inputValidation' });
+    }
+  }
   const db = await getDbClient(bucket);
   const type = (value && (typeof value === 'object'))
     ? 'json'

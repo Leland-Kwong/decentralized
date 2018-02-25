@@ -6,7 +6,7 @@ import level from 'level-browserify';
 import bytes from 'bytes';
 import noop from '../../isomorphic/noop';
 
-const debug = process.env.NODE_ENV === 'dev'
+const debug = process.env.NODE_ENV === 'development'
   ? require('debug')
   : () => noop;
 const log = (namespace) =>
