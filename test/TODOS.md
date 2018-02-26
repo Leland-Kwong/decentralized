@@ -1,3 +1,4 @@
 # Tests to add
 
-- [] add tests for oplog
+- [] db oplog
+- [] db encode/decode
