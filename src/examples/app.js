@@ -9,12 +9,12 @@ import Input from './Input';
 import debounce from 'lodash.debounce';
 import { getTimeMS } from '../isomorphic/lexicographic-id';
 import { HotKeys } from 'react-hotkeys';
+import { serverApiBaseRoute } from '../public/client/config';
 
 const log = (ns, ...rest) =>
   console.log(`lucidbyte.client.${ns}`, ...rest);
 
 const $App = document.querySelector('#App');
-const { serverApiBaseRoute } = require('../public/client/config');
 const apiBaseRoute = `${serverApiBaseRoute}/api`;
 class LoginForm extends Component {
   static defaultProps = {
@@ -100,6 +100,10 @@ class LoginForm extends Component {
 }
 
 function tail(db) {
+  db.bucket('leland.chat')
+    .key('message')
+    .get()
+    .then(res => console.log('[GET]', res));
   db.bucket('_opLog')
     .inspect({ limit: 1 }, res => {
       const { key, value } = res;
@@ -133,23 +137,20 @@ function startApp() {
 
     componentDidMount() {
       const { token } = this.props;
-      sockClient = new Socket({ token, enableOffline: false });
-      const clientNoOffline = new Socket({ token });
+      sockClient = new Socket({
+        token,
+        enableOffline: false,
+        uri: serverApiBaseRoute
+      });
+      const clientNoOffline = new Socket({
+        token,
+        uri: serverApiBaseRoute
+      });
       tail(clientNoOffline);
-      const testBucket = clientNoOffline.bucket('leland.list');
-      console.log(
-        testBucket,
-        testBucket.key('blah'),
-        testBucket.key('blah2'),
-      );
 
       sockClient.socket
         .on('connect', this.handleStart)
         .on('disconnect', this.handleDisconnect)
-        .on('TokenError', (error) => {
-          console.log(error);
-          this.handleLogout();
-        })
         .on('error', (err) => {
           console.error('error', err);
         })
@@ -210,12 +211,24 @@ function startApp() {
       }
       this.setState({ started: true });
 
-      sockClient.subscribe({
-        bucket: 'leland.chat',
-        key: 'json_message',
-      }, (data) => {
-        console.log('leland.chat.json_message', data);
-      });
+      sockClient
+        .bucket('leland.chat')
+        .key('message')
+        .subscribe({
+          query: /* GraphQL */`
+            { message }
+          `
+        }, ({ value }) => {
+          console.log(value);
+          this.setState({ message: value.message });
+        });
+
+      sockClient
+        .bucket('leland.chat')
+        .key('json_message')
+        .subscribe({}, (data) => {
+          console.log('leland.chat.json_message', data);
+        });
 
       let items;
       sockClient.subscribe({
@@ -240,11 +253,10 @@ function startApp() {
     }
 
     setMessageUpdateServer = debounce(function update(value) {
-      sockClient.put({
-        bucket: 'leland.chat',
-        key: 'json_message',
-        value: { value }
-      });
+      sockClient
+        .bucket('leland.chat')
+        .key('json_message')
+        .put({ value: { value } });
 
       sockClient.patch({
         bucket: 'leland.chat',
@@ -292,20 +304,21 @@ function startApp() {
       };
       this.setState({ message: '' });
       this.setState({ items });
-      sockClient.put({
-        bucket: 'leland.list',
-        key,
-        value
-      }).catch(err => console.error(err));
+      sockClient
+        .bucket('leland.list')
+        .key(key)
+        .put({ value })
+        .catch(err => console.error(err));
     }
 
     removeItem = (key) => {
       const items = { ...this.state.items };
       delete items[key];
-      sockClient.del({
-        bucket: 'leland.list',
-        key
-      }).then(() => this.setState({ items }));
+      sockClient
+        .bucket('leland.list')
+        .key(key)
+        .del()
+        .then(() => this.setState({ items }));
     }
 
     updateItem = (key, value) => {

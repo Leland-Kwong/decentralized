@@ -15,8 +15,8 @@ const handleDbCacheDispose = db => db.close();
 const dbsOpened = require('lru-cache')({
   max: 5000,
   dispose: (key, val) => {
-    val().then(handleDbCacheDispose)
-      .catch(console.error);
+    val.catch(console.error)
+      .then(handleDbCacheDispose);
   }
 });
 
@@ -34,14 +34,24 @@ class KV extends LevelUp {
     super(db);
     const {
       bucket = '',
-      onOpened
+      onOpened,
+      cache = true
     } = options;
+    this.options = options;
     this.bucket = bucket;
     this.rootDir = rootDir;
     this.metadata = metadata;
 
     onOpened &&
       this.on('open', () => onOpened(this));
+
+    if (cache) {
+      const invalidateCache = (key) => {
+        const path = this.cacheKey(key);
+        dbGlobalCache.del(path);
+      };
+      this.on('put', invalidateCache);
+    }
   }
 
   async drop() {
@@ -50,7 +60,6 @@ class KV extends LevelUp {
       await this.reset();
       return { ok: 1 };
     } catch(err) {
-      console.log(err);
       throw new kvError({ msg: 'error dropping database' });
     }
   }
@@ -67,33 +76,24 @@ KVProto.cacheKey = function(valueKey) {
   return dbId + '/' + valueKey;
 };
 
-const putProto = LevelUp.prototype.put;
-KVProto.put = function invalidateCacheOnPut(key, value, options, callback) {
-  const path = this.cacheKey(key);
-  const hasCache = dbGlobalCache.get(path);
-  if (hasCache) {
-    // invalidate cache
-    dbGlobalCache.del(path);
-  }
-  return putProto.call(this, key, value, options, callback);
-};
-
 const getProto = LevelUp.prototype.get;
 const getOptions = { fillCache: false };
+const handleGetResult = data => {
+  const { parsed, raw } = data;
+  dbGlobalCache.set(path, {
+    value: parsed,
+    size: Buffer.byteLength(raw + path)
+  });
+  return parsed;
+};
 KVProto.get = function getWithGlobalCache(key) {
-  const path = this.cacheKey(key);
-  const fromCache = dbGlobalCache.get(path);
-  if (fromCache) {
-    return fromCache.value;
+  if (this.options.cache) {
+    const path = this.cacheKey(key);
+    const fromCache = dbGlobalCache.get(path);
+    if (fromCache) {
+      return fromCache.value;
+    }
   }
-  const handleGetResult = data => {
-    const { parsed, raw } = data;
-    dbGlobalCache.set(path, {
-      value: parsed,
-      size: Buffer.byteLength(raw + path)
-    });
-    return parsed;
-  };
   return getProto.call(this, key, getOptions)
     .then(handleGetResult);
 };
@@ -114,7 +114,7 @@ const createInstance = (rootDir) => (options = {}) => {
   const dbPath = path.join(_rootDir, bucket);
   const fromCache = dbsOpened.get(dbPath);
   if (fromCache) {
-    return fromCache();
+    return fromCache;
   }
   const dbPromise = new Promise(async (resolve, reject) => {
     // recursively setup directory
@@ -142,9 +142,7 @@ const createInstance = (rootDir) => (options = {}) => {
     }
     return db;
   };
-  dbsOpened.set(dbPath, () => {
-    return dbPromise.then(cacheHandler);
-  });
+  dbsOpened.set(dbPath, dbPromise.then(cacheHandler));
   return dbPromise;
 };
 

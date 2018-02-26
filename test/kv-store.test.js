@@ -35,8 +35,8 @@ describe('db shared cache', () => {
     // drop dbs
     const entries = dbsOpened.dump();
     await Promise.all(
-      entries.map(({ v: getDb }) => {
-        return getDb().then(db => db.drop());
+      entries.map(({ v: db }) => {
+        return db.then(db => db.drop());
       })
     );
   });

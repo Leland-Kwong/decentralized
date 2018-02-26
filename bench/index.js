@@ -26,7 +26,7 @@ async function Stream(db, options, onData) {
 }
 
 Perf('generate items');
-const list = new Array(4).fill(0).map(() => chance.paragraph());
+const list = new Array(1).fill(0).map(() => chance.paragraph());
 const items = new Array(10000).fill(0).map((_, i) => {
   return {
     type: 'json',
@@ -50,16 +50,25 @@ async function setup(insertData) {
     Perf('batch insert');
     // const batch = db.batch();
     await new Promise((resolve) => {
-      let count = 0;
+      /*let count = 0;
       function onPut() {
         count++;
         if (count === items.length) {
           resolve();
         }
       }
-      items.forEach(item => {
+      items.forEach(async item => {
+        const db = await getDb('bench.db');
         db.put(item.value.key, item, onPut);
+      });*/
+
+      // const version = Date.now().toString(36);
+      const batch = db.batch();
+      items.forEach(item => {
+        // item.value.version = version;
+        batch.put(item.value.key, item);
       });
+      batch.write(resolve);
     });
     const perf = Perf('batch insert');
     allResults.add(perf);
@@ -77,14 +86,13 @@ async function setup(insertData) {
 async function run() {
   try {
     const { db, cleanup } = await setup(true);
+    // warm up
+    await Stream(db, () => {});
     Perf('read stream');
-    const results = [];
-    await Stream(db, (data) => results.push(data));
+    await Stream(db, () => {});
     const perf = Perf('read stream');
     console.log(
       perf,
-      results.length,
-      // results[0].value
     );
     await cleanup();
     Perf.resetAll();
@@ -113,7 +121,8 @@ async function readLog() {
     Perf('read opLog'),
     results.length,
     filtered.length,
-    JSON.stringify(filtered[0]).length
+    JSON.stringify(results[0]).length,
+    // results[0]
   );
 }
 

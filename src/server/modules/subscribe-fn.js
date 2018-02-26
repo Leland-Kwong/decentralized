@@ -104,7 +104,9 @@ module.exports = function createSubscribeFn(client, subscriptions) {
         db.removeListener('put', onPut);
         db.removeListener('del', onDelete);
       });
-    } else {
+    }
+    // watch bucket/key
+    else {
       try {
         if (initialValue) {
           try {
@@ -126,13 +128,13 @@ module.exports = function createSubscribeFn(client, subscriptions) {
           if (ignore) return;
           client.emit(
             eventId,
-            { action: 'put', key, value: queryData(query, value) }
+            { action: 'put', value: queryData(query, value) }
           );
         };
         const onDel = async (key) => {
           const ignore = !watchEntireBucket && key !== keyToSubscribe;
           if (ignore) return;
-          client.emit(eventId, { action: 'del', key });
+          client.emit(eventId, { action: 'del' });
         };
         const putEvent = dbNsEvent('put', bucket, key);
         const delEvent = dbNsEvent('del', bucket, key);

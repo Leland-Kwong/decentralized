@@ -115,7 +115,6 @@ opLog.on('open', () => {
     );
   });
 });
-console.log(opLog);
 
 /*
   Log all writes to client-side storage when offline.

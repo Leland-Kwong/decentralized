@@ -1,3 +1,5 @@
+// TODO: create a `write` function that receives the changeData and adds a version property to the changeData. This version will also be used for the opLog id as well as for the global to cache to check if the cache value should be updated. #mvp #priority-1
+
 /*
   Parses data by first handling the headers, then the values.
   Data format is as follows:
@@ -47,7 +49,25 @@ const decodeData = (data) => {
   };
 };
 
+const parseGet = (data) => {
+  const { headers, value } = decodeData(data);
+  const type = headers[0];
+  let parsed;
+  if (type === 'dbLog') {
+    const [b, k, a] = headers.slice(1);
+    parsed = { b, k, a, v: value };
+  } else {
+    parsed = type === 'json'
+      ? JSON.parse(value)
+      : value;
+  }
+  return {
+    parsed,
+    raw: data
+  };
+};
+
 module.exports = {
   encodeData,
-  decodeData
+  decodeData: parseGet
 };

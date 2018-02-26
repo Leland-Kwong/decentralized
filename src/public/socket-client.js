@@ -9,7 +9,6 @@ import queryData from '../isomorphic/query-data';
 import { applyReducer } from 'fast-json-patch';
 import checkRange from '../isomorphic/is-value-in-range';
 import noop from '../isomorphic/noop';
-const { serverApiBaseRoute } = require('./client/config');
 
 import {
   persistToLocalDb,
@@ -71,34 +70,46 @@ const socketsByUrl = new Map();
 export default class Socket {
   constructor(config) {
     const {
-      token,
-      transports = ['websocket'],
       enableOffline = false,
-      url = serverApiBaseRoute
     } = config;
-
-    // share the same connection if it already exists
-    let socket = socketsByUrl.get(url);
-    if (!socket) {
-      const io = require('socket.io-client');
-      socket = io(url, {
-        query: { token },
-        secure: true,
-        // force websocket as default
-        transports
-      });
-
-      socketsByUrl.set(url, socket);
-    }
-
-    socket.on('connect', () => flushAndSyncLog(this));
-    this.socket = socket;
+    this.config = config;
     this.offlineEmitter = new OfflineEmitter();
     this.enableOffline = enableOffline;
+    this.connect();
   }
 }
 
+function connect() {
+  const {
+    token,
+    transports = ['websocket'],
+    uri
+  } = this.config;
+
+  if ('undefined' === typeof uri) {
+    throw `[SocketException] missing 'uri' parameter`;
+  }
+
+  // share the same connection if it already exists
+  let socket = socketsByUrl.get(uri);
+  if (!socket) {
+    const io = require('socket.io-client');
+    socket = io(uri, {
+      query: { token },
+      secure: true,
+      // force websocket as default
+      transports
+    });
+
+    socketsByUrl.set(uri, socket);
+  }
+
+  socket.on('connect', () => flushAndSyncLog(this));
+  this.socket = socket;
+}
+
 Object.assign(Socket.prototype, {
+  connect,
   isConnected() {
     return this.socket.connected;
   },
@@ -131,7 +142,7 @@ Object.assign(Socket.prototype, {
     return Object.create(inst, proto);
   },
 
-  subscribeBucket(params, cb, onAcknowledge, onComplete) {
+  _subscribeBucket(params, cb, onAcknowledge, onComplete) {
     const args = arguments;
     const { socket, enableOffline } = this;
     const {
@@ -147,7 +158,7 @@ Object.assign(Socket.prototype, {
       initialValue,
       query,
       once
-    } = params;
+    } = this.setupParams(params);
     const eventId =
       params.eventId =
         createEventId();
@@ -221,10 +232,10 @@ Object.assign(Socket.prototype, {
     });
   },
 
-  subscribeKey(params, subscriber, onAcknowledge) {
+  _subscribeKey(params, subscriber, onAcknowledge) {
     const args = arguments;
     const { socket } = this;
-    const { bucket, key, once } = params;
+    const { bucket, key, once } = this.setupParams(params);
     const eventId =
       params.eventId =
         createEventId();
@@ -256,17 +267,16 @@ Object.assign(Socket.prototype, {
   },
 
   subscribe(params, subscriber, onComplete = noop, onAcknowledge = noop) {
-    params.bucket = params.bucket || this._bucket;
-    const { bucket, key } = params;
+    const { bucket, key } = this.setupParams(params);
     require('debug')('lucidbyte.subscribe')(bucket, key);
     if (typeof params.key === 'undefined') {
-      return this.subscribeBucket(params, subscriber, onAcknowledge, onComplete);
+      return this._subscribeBucket(params, subscriber, onAcknowledge, onComplete);
     }
-    this.subscribeKey(params, subscriber, onAcknowledge);
+    this._subscribeKey(params, subscriber, onAcknowledge);
   },
 
   put(params, cb) {
-    const { bucket, key, value, _syncing } = params;
+    const { bucket, key, value, _syncing } = this.setupParams(params);
     const { socket } = this;
 
     if (!_syncing) {
@@ -284,7 +294,7 @@ Object.assign(Socket.prototype, {
 
   patch(params, cb) {
     // accepts either `value` or `ops` property as the patch
-    const { bucket, key, value, ops, _syncing } = params;
+    const { bucket, key, value, ops, _syncing } = this.setupParams(params);
     const { socket } = this;
     const patch = value || ops;
 
@@ -312,10 +322,10 @@ Object.assign(Socket.prototype, {
   // gets the value once
   get(params, cb) {
     const { socket } = this;
-    const callback = this.promisifySocket('get', params, cb);
-    let serverOptions = params;
+    let serverOptions = this.setupParams(params);
+    const callback = this.promisifySocket('get', serverOptions, cb);
     if (this.enableOffline) {
-      serverOptions = { ...params };
+      serverOptions = { ...serverOptions };
       delete serverOptions.query;
     }
     socket.emit('get', serverOptions, callback);
@@ -324,9 +334,9 @@ Object.assign(Socket.prototype, {
 
   del(params, cb) {
     const { socket } = this;
-    const { bucket, key } = params;
+    const { bucket, key, _syncing } = this.setupParams(params);
 
-    if (!params._syncing) {
+    if (!_syncing) {
       const logPromise = logAction({ action: 'del', bucket, key }, socket);
       if (!this.isConnected()) {
         this.offlineEmitter.emit(bucket, key, { action: 'del' });
@@ -341,6 +351,13 @@ Object.assign(Socket.prototype, {
 
   close() {
     this.socket.close();
+  },
+
+  // sets parameters that have set by chained methods
+  setupParams(params = {}) {
+    params.bucket = params.bucket || this._bucket;
+    params.key = params.key || this._key;
+    return params;
   },
 
   triggerCallbackIfOffline(params, cb, onComplete) {
@@ -361,69 +378,69 @@ Object.assign(Socket.prototype, {
     return cb;
   },
 
-  promisifySocket(
-    actionType,
-    params = {},
-    // TODO: add support for callbackFn to invoke instead of promise
-    // cb
-  ) {
-    let promisifiedCallback;
-    let fulfilled = false;
-    const { bucket, key, query } = params;
-    const promise = new Promise((resolve, reject) => {
-      // default timeout handler to prevent callback from hanging indefinitely
-      const timeout = (!this.enableOffline && !this.isConnected())
-        ? setTimeout(reject, 5000)
-        : 0;
-      promisifiedCallback = ({ error, value }) => {
-        if (fulfilled) {
-          return;
-        }
-        fulfilled = true;
-        clearTimeout(timeout);
-        if (error) reject(error);
-        else {
-          if (this.enableOffline) {
-            let valueToPersist;
-            if (actionType === 'put') {
-              valueToPersist = Promise.resolve(params.value);
-            } else if (actionType === 'patch') {
-              const fromLocalDb = getFromLocalDb(bucket, key);
-              valueToPersist = fromLocalDb.then(value => {
-                const ops = params.value || params.ops;
-                return ops.reduce(applyReducer, value);
-              }).catch((err) => {
-                console.error('error', err, params);
-              });
-            } else {
-              valueToPersist = Promise.resolve(value);
-            }
-            valueToPersist.then(v => {
-              return persistToLocalDb(bucket, key, v, actionType);
-            });
-          }
-          /*
-            NOTE: when offline is enabled, the backend will return the full
-            pre-queried value so the client-side can cache it. All querying is
-            then done on the client-side instead.
-           */
-          const valueToSend = this.enableOffline
-            ? queryData(query, value)
-            : value;
-          resolve(valueToSend);
-        }
-      };
-    });
-    promisifiedCallback.promise = promise;
-    if (this.enableOffline && !this.isConnected()) {
-      if (actionType === 'get') {
-        getFromLocalDb(bucket, key)
-          .catch(console.warn)
-          .then(value => promisifiedCallback({ value }));
-      }
-    }
-    return promisifiedCallback;
-  },
-
   inspect: require('./client/inspect-db').default
 });
+
+Socket.prototype.promisifySocket = function(
+  actionType,
+  params = {},
+  // TODO: add support for callbackFn to invoke instead of promise
+  // cb
+) {
+  let promisifiedCallback;
+  let fulfilled = false;
+  const { bucket, key, query } = params;
+  const promise = new Promise((resolve, reject) => {
+    // default timeout handler to prevent callback from hanging indefinitely
+    const timeout = (!this.enableOffline && !this.isConnected())
+      ? setTimeout(reject, 5000)
+      : 0;
+    promisifiedCallback = ({ error, value }) => {
+      if (fulfilled) {
+        return;
+      }
+      fulfilled = true;
+      clearTimeout(timeout);
+      if (error) reject(error);
+      else {
+        if (this.enableOffline) {
+          let valueToPersist;
+          if (actionType === 'put') {
+            valueToPersist = Promise.resolve(params.value);
+          } else if (actionType === 'patch') {
+            const fromLocalDb = getFromLocalDb(bucket, key);
+            valueToPersist = fromLocalDb.then(value => {
+              const ops = params.value || params.ops;
+              return ops.reduce(applyReducer, value);
+            }).catch((err) => {
+              console.error('error', err, params);
+            });
+          } else {
+            valueToPersist = Promise.resolve(value);
+          }
+          valueToPersist.then(v => {
+            return persistToLocalDb(bucket, key, v, actionType);
+          });
+        }
+        /*
+          NOTE: when offline is enabled, the backend will return the full
+          pre-queried value so the client-side can cache it. All querying is
+          then done on the client-side instead.
+         */
+        const valueToSend = this.enableOffline
+          ? queryData(query, value)
+          : value;
+        resolve(valueToSend);
+      }
+    };
+  });
+  promisifiedCallback.promise = promise;
+  if (this.enableOffline && !this.isConnected()) {
+    if (actionType === 'get') {
+      getFromLocalDb(bucket, key)
+        .catch(console.warn)
+        .then(value => promisifiedCallback({ value }));
+    }
+  }
+  return promisifiedCallback;
+};
