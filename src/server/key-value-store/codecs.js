@@ -39,7 +39,7 @@ const decodeData = (data) => {
   }
   const valueDelimIndex = data.indexOf(d.VALUE);
   const headers = data.slice(0, valueDelimIndex).split(d.HEADER);
-  const value = data.slice(valueDelimIndex + 1);
+  const value = data.slice(valueDelimIndex + d.VALUE.length);
   // default to returning the raw value
   return {
     headers,
