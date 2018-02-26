@@ -8,6 +8,7 @@ import session from '../public/client/session';
 import Input from './Input';
 import debounce from 'lodash.debounce';
 import { getTimeMS } from '../isomorphic/lexicographic-id';
+import { HotKeys } from 'react-hotkeys';
 
 const log = (ns, ...rest) =>
   console.log(`lucidbyte.client.${ns}`, ...rest);
@@ -107,8 +108,6 @@ function tail(db) {
         timestamp: new Date(getTimeMS(key)).toISOString(),
         value
       });
-    }, () => {
-      log('[OPLOG_END]', '---');
     });
   db.bucket('_sessions')
     .inspect(res => {
@@ -285,6 +284,7 @@ function startApp() {
       if (!value) {
         return;
       }
+      console.log(value);
       const key = Date.now().toString();
       const items = {
         ...this.state.items,
@@ -342,13 +342,20 @@ function startApp() {
           </section>
           <section>
             <form onSubmit={this.addItem}>
-              <label htmlFor="name" className="f6 b db mb2">Name <span className="normal black-60">(optional)</span></label>
-              <Input
-                placeholder="Enter a message..."
-                autoFocus
-                onInput={(e) => this.setMessage(e.target.value)}
-                value={this.state.message}
-              />
+              <HotKeys keyMap={{
+                requestSave: 'command+enter'
+              }}
+              >
+                <label htmlFor="name" className="f6 b db mb2">Name <span className="normal black-60">(optional)</span></label>
+                <Input
+                  type='textarea'
+                  placeholder="Enter a message..."
+                  autoFocus
+                  onChange={(e) => this.setMessage(e.target.value)}
+                  value={this.state.message}
+                  onRequestSave={() => this.addItem()}
+                />
+              </HotKeys>
             </form>
             {/* List - testing iteration of a bucket */}
             <ul>

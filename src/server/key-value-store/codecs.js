@@ -11,39 +11,14 @@
   ** data end **
  */
 
-const HEADER_DELIM = '\n';
-const decodeData = (data) => {
-  const headers = [];
-  let i = -1;
-  let startIndex = 0;
-  const { length } = data || '';
-  while(i++ < length) {
-    const char = data[i];
-    const isDelim = char === HEADER_DELIM;
-    if (isDelim) {
-      headers.push(data.slice(startIndex, i));
-      startIndex = i + 1;
-    }
-    const nextChar = data[i + 1];
-    // value delimiter is \n\n
-    const isHeaderEnd = isDelim && nextChar === HEADER_DELIM;
-    if (isHeaderEnd) {
-      return {
-        headers,
-        value: data.slice(startIndex + 1)
-      };
-    }
-  }
-  // default to returning the raw value
-  return {
-    headers,
-    value: data
-  };
+// delimeters
+const d = {
+  HEADER: '\n',
+  VALUE: '\n\n'
 };
 
-const delim = require('../modules/delim');
 const encodeData = (input = {}) => {
-  const { type, value, meta = '' } = input;
+  const { value, type = (typeof value), meta = '' } = input;
   let normalizedValue;
   if ('undefined' === typeof value) {
     normalizedValue = '';
@@ -53,9 +28,23 @@ const encodeData = (input = {}) => {
       ? JSON.stringify(value)
       : value;
   }
-  const metadata = meta ? `${HEADER_DELIM}${meta}` : '';
-  const out = `${type}${metadata}${delim.v}${normalizedValue}`;
+  const metadata = meta ? `${d.HEADER}${meta}` : '';
+  const out = `${type}${metadata}${d.VALUE}${normalizedValue}`;
   return out;
+};
+
+const decodeData = (data) => {
+  if ('undefined' === typeof data) {
+    throw `[DecodeException] data is undefined`;
+  }
+  const valueDelimIndex = data.indexOf(d.VALUE);
+  const headers = data.slice(0, valueDelimIndex).split(d.HEADER);
+  const value = data.slice(valueDelimIndex + 1);
+  // default to returning the raw value
+  return {
+    headers,
+    value
+  };
 };
 
 module.exports = {

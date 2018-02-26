@@ -32,8 +32,6 @@ describe('db shared cache', () => {
     await db.put('foo2', { value: 'foo' });
     await db.get('foo2');
 
-    console.log(dbGlobalCache);
-
     // drop dbs
     const entries = dbsOpened.dump();
     await Promise.all(

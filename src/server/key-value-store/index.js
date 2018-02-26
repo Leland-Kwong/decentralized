@@ -5,7 +5,7 @@ const delDir = require('del');
 const LevelUp = require('levelup');
 const leveldown = require('leveldown');
 const encode = require('encoding-down');
-const createDbId = require('../../isomorphic/lexicographic-id');
+const getMetadata = require('./metadata');
 const fs = require('fs-extra');
 const {
   dbGlobalCache,
@@ -13,7 +13,7 @@ const {
 
 const handleDbCacheDispose = db => db.close();
 const dbsOpened = require('lru-cache')({
-  max: 100,
+  max: 5000,
   dispose: (key, val) => {
     val().then(handleDbCacheDispose)
       .catch(console.error);
@@ -28,19 +28,17 @@ function kvError({ msg, type }) {
   }
 }
 
-const DB_ID = Symbol('alias');
-
 // NOTE: Base class for all databases. Has some built in defaults to make it a bit easier to use.
 class KV extends LevelUp {
-  constructor(db, rootDir, options) {
+  constructor(db, rootDir, options, metadata) {
     super(db);
     const {
       bucket = '',
       onOpened
     } = options;
     this.bucket = bucket;
-    this[DB_ID] = createDbId();
     this.rootDir = rootDir;
+    this.metadata = metadata;
 
     onOpened &&
       this.on('open', () => onOpened(this));
@@ -48,9 +46,7 @@ class KV extends LevelUp {
 
   async drop() {
     try {
-      await new Promise((resolve) => {
-        this.close(resolve);
-      });
+      dbsOpened.del(this.rootDir);
       await this.reset();
       return { ok: 1 };
     } catch(err) {
@@ -67,7 +63,8 @@ class KV extends LevelUp {
 const KVProto = KV.prototype;
 
 KVProto.cacheKey = function(valueKey) {
-  return this[DB_ID] + '/' + valueKey;
+  const { id: dbId } = this.metadata;
+  return dbId + '/' + valueKey;
 };
 
 const putProto = LevelUp.prototype.put;
@@ -80,19 +77,6 @@ KVProto.put = function invalidateCacheOnPut(key, value, options, callback) {
   }
   return putProto.call(this, key, value, options, callback);
 };
-
-const hasKeyThenHandler = res => !!res;
-KVProto.hasKey = function(key) {
-  return new Promise((resolve, reject) => {
-    this.iterator({ gte: key, lte: key }, {
-      onNext: resolve,
-      onError: reject,
-      onComplete: resolve
-    });
-  }).then(hasKeyThenHandler);
-};
-
-KVProto.iterator = require('./iterator');
 
 const getProto = LevelUp.prototype.get;
 const getOptions = { fillCache: false };
@@ -121,11 +105,12 @@ KVProto.get = function getWithGlobalCache(key) {
   initialization happens before ther previous request has finished, we can
   return the in-flight request.
  */
-const createInstance = (rootDir, options = {}) => {
-  let dbPath = path.join(rootDir, options.bucket);
+const createInstance = (rootDir) => (options = {}) => {
+  let _rootDir = rootDir;
   if (process.env.NODE_ENV === 'test') {
-    dbPath = '/tmp/test' + dbPath;
+    _rootDir = '/tmp/test' + rootDir;
   }
+  const dbPath = path.join(_rootDir, options.bucket);
   const fromCache = dbsOpened.get(dbPath);
   if (fromCache) {
     return fromCache();
@@ -146,12 +131,13 @@ const createInstance = (rootDir, options = {}) => {
       leveldown(dbPath, dbConfig),
       options.encoding || {}
     );
-    const db = new KV(dataDb, dbPath, options);
+    const metadata = await getMetadata(dbPath);
+    const db = new KV(dataDb, dbPath, options, metadata);
     db.on('open', () => resolve(db));
   });
   const cacheHandler = db => {
     if (db.isClosed()) {
-      return createInstance(dbPath, options);
+      return createInstance(_rootDir)(options);
     }
     return db;
   };

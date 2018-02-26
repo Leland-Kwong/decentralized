@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const ms = require('ms');
 const getDbClient = require('../modules/get-db');
-const sessionsDb = () => getDbClient('_sessions');
+const sessionsDb = getDbClient('_sessions');
 
 // grabs from cache first, then db if needed
 const db = {
@@ -13,7 +13,7 @@ const db = {
     const putValue = { type: 'json', value: fullToken };
 
     try {
-      (await sessionsDb())
+      await (await sessionsDb)
         .put(tokenId, putValue);
     } catch(err) {
       console.log(err);
@@ -23,7 +23,7 @@ const db = {
   },
   async get(tokenId) {
     try {
-      const db = await sessionsDb();
+      const db = await sessionsDb;
       const fromDb = await db.get(tokenId);
       return fromDb;
     } catch(err) {
@@ -35,7 +35,7 @@ const db = {
   },
   async delete(tokenId) {
     try {
-      (await sessionsDb()).del(tokenId);
+      return (await sessionsDb).del(tokenId);
     } catch (err) {
       console.log(err);
     }

@@ -9,17 +9,20 @@ function TypeError(type, valueType, value) {
 }
 
 module.exports = {
-  validate: (bucket, key) => {
+  validateBucket: (bucket) => {
     const bucketType = typeof bucket;
     if (bucketType !== 'string') {
       throw new TypeError('bucket', bucketType, bucket);
     }
+    if (!bucket.match(regex)) {
+      throw new RegexError('bucket', bucket);
+    }
+    return true;
+  },
+  validateKey: (key) => {
     const keyType = typeof key;
     if (keyType !== 'string') {
       throw new TypeError('key', keyType, key);
-    }
-    if (!bucket.match(regex)) {
-      throw new RegexError('bucket', bucket);
     }
     if (!key.match(regex)) {
       throw new RegexError('key', key);

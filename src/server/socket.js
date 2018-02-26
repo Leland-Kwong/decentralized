@@ -102,11 +102,21 @@ io.on('connection', (client) => {
   client.on('put', dbPut);
 
   const { applyReducer } = require('fast-json-patch');
+  const defaultPatchValue = () => ({});
   const dbPatch = async (data, fn) => {
     const { bucket, key, ops: patchObject } = data;
     try {
       const db = await getDbClient(bucket);
-      const curValue = await db.get(key);
+      const curValue = await db.get(key) || defaultPatchValue();
+
+      const isPlainObject = curValue && typeof curValue === 'object';
+      if (!isPlainObject) {
+        return fn({
+          error: 'cannot apply patch to non-object',
+          type: 'PatchException'
+        });
+      }
+
       const actionType = 'patch';
       const patchResult = patchObject.reduce(applyReducer, curValue);
       const putValue = {

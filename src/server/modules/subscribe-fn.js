@@ -96,12 +96,12 @@ module.exports = function createSubscribeFn(client, subscriptions) {
         return;
       }
 
-      const onPutDecode = bucketStream('put');
-      db.on('put', onPutDecode);
+      const onPut = bucketStream('put');
+      db.on('put', onPut);
       const onDelete = bucketStream('del');
       db.on('del', onDelete);
       subscriptions.set(eventId, function cleanup() {
-        db.removeListener('put', onPutDecode);
+        db.removeListener('put', onPut);
         db.removeListener('del', onDelete);
       });
     } else {

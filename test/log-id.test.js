@@ -1,6 +1,8 @@
-import logId from '../src/isomorphic/lexicographic-id';
+import LexId from '../src/isomorphic/lexicographic-id';
 
 test('many unique lexicographic ids', () => {
+  const logId = LexId();
+
   const ids = [];
   const count = 500000;
 
