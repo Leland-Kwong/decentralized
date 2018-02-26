@@ -1,8 +1,19 @@
+const fs = require('fs-extra');
 const getDb = require('../src/server/modules/get-db');
 const Perf = require('perf-profile');
 const chance = require('chance')();
 const debug = require('debug');
 const log = (ns, ...rest) => debug(`bench.${ns}`)(...rest);
+
+const allResults = {
+  data: {},
+  add(perf) {
+    this.data[new Date().toISOString()] = perf;
+  },
+  writeToFile(path) {
+    fs.writeFile(path, JSON.stringify(this.data, null, 2));
+  }
+};
 
 async function Stream(db, options, onData) {
   const stream = db.createReadStream(options);
@@ -50,8 +61,10 @@ async function setup(insertData) {
         db.put(item.value.key, item, onPut);
       });
     });
+    const perf = Perf('batch insert');
+    allResults.add(perf);
     // await batch.write();
-    log('', Perf('batch insert'));
+    log('', perf);
   }
 
   function cleanup() {
@@ -67,13 +80,15 @@ async function run() {
     Perf('read stream');
     const results = [];
     await Stream(db, (data) => results.push(data));
+    const perf = Perf('read stream');
     console.log(
-      Perf('read stream'),
+      perf,
       results.length,
       // results[0].value
     );
     await cleanup();
     Perf.resetAll();
+    return perf;
   } catch(err) {
     console.error(err);
   }
@@ -103,13 +118,16 @@ async function readLog() {
 }
 
 let count = 0;
+
 async function runBench(runCount) {
-  await run();
+  const perfResults = await run();
+  allResults.add(perfResults);
   count++;
   if (count < runCount) {
     runBench(runCount);
   } else {
     readLog();
+    allResults.writeToFile('./bench/results/db.json');
   }
 }
 runBench(6);

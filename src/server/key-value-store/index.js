@@ -106,11 +106,12 @@ KVProto.get = function getWithGlobalCache(key) {
   return the in-flight request.
  */
 const createInstance = (rootDir) => (options = {}) => {
+  const { encoding = {}, bucket } = options;
   let _rootDir = rootDir;
   if (process.env.NODE_ENV === 'test') {
     _rootDir = '/tmp/test' + rootDir;
   }
-  const dbPath = path.join(_rootDir, options.bucket);
+  const dbPath = path.join(_rootDir, bucket);
   const fromCache = dbsOpened.get(dbPath);
   if (fromCache) {
     return fromCache();
@@ -129,7 +130,7 @@ const createInstance = (rootDir) => (options = {}) => {
     };
     const dataDb = encode(
       leveldown(dbPath, dbConfig),
-      options.encoding || {}
+      encoding
     );
     const metadata = await getMetadata(dbPath);
     const db = new KV(dataDb, dbPath, options, metadata);
