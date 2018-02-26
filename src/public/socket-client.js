@@ -212,7 +212,7 @@ Object.assign(Socket.prototype, {
     };
     const cleanupOfflineEmitter =
       this.offlineEmitter.on(bucket, '*', onOfflineBucketChange);
-    this.triggerCallbackIfOffline(cb, params, onComplete);
+    this.triggerCallbackIfOffline(params, cb, onComplete);
     socket.once('disconnect', () => {
       socket.once('reconnect', () => {
         cleanupOfflineEmitter();
@@ -246,7 +246,7 @@ Object.assign(Socket.prototype, {
         console.log('lucidbyte.offline.subscribe', data);
         subscriber(data);
       });
-    this.triggerCallbackIfOffline(subscriber, params);
+    this.triggerCallbackIfOffline(params, subscriber);
     socket.once('disconnect', () => {
       socket.once('reconnect', () => {
         this.subscribeKey(...args);
@@ -343,7 +343,7 @@ Object.assign(Socket.prototype, {
     this.socket.close();
   },
 
-  triggerCallbackIfOffline(cb, params, onComplete) {
+  triggerCallbackIfOffline(params, cb, onComplete) {
     if (!this.enableOffline) {
       return;
     }
