@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const ms = require('ms');
 const getDbClient = require('../modules/get-db');
 const sessionsDb = getDbClient('_sessions');
+const { socketServerApiKey, socketClientDevAuthToken } = require('../config');
 
 // grabs from cache first, then db if needed
 const db = {
@@ -60,6 +61,7 @@ const Token = {
     if (!userId) {
       throw new TokenError('{userId} property must be provided');
     }
+    // [minimum session token size](https://www.owasp.org/index.php/Insufficient_Session-ID_Length)
     const tokenId = crypto.randomBytes(12)
       .toString('hex');
     const token = { tokenId, userId, expiresAt };
@@ -77,6 +79,15 @@ const Token = {
     return await db.delete(tokenId);
   },
   async verify(tokenId) {
+    // NOTE: This will only work for development environments based on '.env.development' file.
+    if (
+      process.env.NODE_ENV === 'development' && (
+        tokenId === socketServerApiKey
+        || tokenId === socketClientDevAuthToken
+      )
+    ) {
+      return true;
+    }
     const token = await db.get(tokenId);
     const time = TimeMS();
     const hasExpired = token && (token.expiresAt < time);

@@ -2,7 +2,7 @@
 
 import React, { Component } from 'react';
 import { render } from 'react-dom';
-import Socket from '../public/socket-client';
+import Socket from '../isomorphic/socket-client';
 import * as auth from '../public/client/auth';
 import session from '../public/client/session';
 import Input from './Input';
@@ -10,6 +10,8 @@ import debounce from 'lodash.debounce';
 import { getTimeMS } from '../isomorphic/lexicographic-id';
 import { HotKeys } from 'react-hotkeys';
 import { serverApiBaseRoute } from '../public/client/config';
+
+const devToken = '6285db0b82e7b141b866bde7';
 
 const log = (ns, ...rest) =>
   console.log(`lucidbyte.client.${ns}`, ...rest);
@@ -142,12 +144,12 @@ function startApp() {
         dev: true,
       });
 
-      const clientNoOffline = new Socket({
+      const client2 = new Socket({
         token,
         uri: serverApiBaseRoute,
         dev: true
       });
-      tail(clientNoOffline);
+      tail(client2);
 
       sockClient.socket
         .on('connect', this.handleStart)
@@ -213,6 +215,14 @@ function startApp() {
       this.setState({ started: true });
 
       sockClient
+        .bucket('ticker')
+        .key('count')
+        .subscribe({}, (data) => {
+          console.log(data);
+          this.setState({ ticker: data.value });
+        });
+
+      sockClient
         .bucket('leland.chat')
         .key('message')
         .subscribe({
@@ -221,6 +231,7 @@ function startApp() {
           `
         }, (data) => {
           const { value } = data;
+          console.log('SUBSCRIBE', value.message);
           this.setState({ message: value.message });
         });
 
@@ -355,6 +366,9 @@ function startApp() {
             </button>
           </section>
           <section>
+            <strong>Ticker: {this.state.ticker}</strong>
+          </section>
+          <section>
             <form onSubmit={this.addItem}>
               <HotKeys keyMap={{
                 requestSave: 'command+enter'
@@ -404,7 +418,7 @@ function startApp() {
   class App extends Component {
     state = {
       loggedIn: session.get().accessToken || false,
-      token: session.get().accessToken,
+      token: devToken || session.get().accessToken,
       sessionInfo: session.get()
     }
 

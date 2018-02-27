@@ -6,6 +6,7 @@ const LevelUp = require('levelup');
 const leveldown = require('leveldown');
 const encode = require('encoding-down');
 const getMetadata = require('./metadata');
+const { validateBucket } = require('../modules/validate-db-paths');
 const fs = require('fs-extra');
 const {
   dbGlobalCache,
@@ -28,10 +29,16 @@ function kvError({ msg, type }) {
   }
 }
 
+const dbBaseConfig = {
+  // disable cache since we're using a single
+  // globally shared cache. (file: global-cache.js)
+  cacheSize: require('bytes')(0)
+};
+
 // NOTE: Base class for all databases. Has some built in defaults to make it a bit easier to use.
 class KV extends LevelUp {
   constructor(db, rootDir, options, metadata) {
-    super(db);
+    super(db, dbBaseConfig);
     const {
       bucket = '',
       onOpened,
@@ -45,27 +52,43 @@ class KV extends LevelUp {
     onOpened &&
       this.on('open', () => onOpened(this));
 
+    // invalidate cache when value is updated
     if (cache) {
       const invalidateCache = (key) => {
         const path = this.cacheKey(key);
         dbGlobalCache.del(path);
       };
       this.on('put', invalidateCache);
+      this.on('batch', (ops) => {
+        for (let i = 0; i < ops.length; i++) {
+          const { key } = ops[i];
+          invalidateCache(key);
+        }
+      });
     }
   }
 
   async drop() {
     try {
-      dbsOpened.del(this.rootDir);
-      await this.reset();
+      await new Promise((resolve, reject) => {
+        this.on('closed', (err) => {
+          if (err) reject(err);
+          else {
+            this.reset()
+              .catch(reject)
+              .then(resolve);
+          }
+        });
+        dbsOpened.del(this.rootDir);
+      });
       return { ok: 1 };
     } catch(err) {
       throw new kvError({ msg: 'error dropping database' });
     }
   }
 
-  async reset() {
-    return await delDir([this.rootDir], { force: true });
+  reset() {
+    return delDir([this.rootDir], { force: true });
   }
 }
 
@@ -105,46 +128,45 @@ KVProto.get = function getWithGlobalCache(key) {
   initialization happens before ther previous request has finished, we can
   return the in-flight request.
  */
-const createInstance = (rootDir) => (options = {}) => {
-  const { encoding = {}, bucket } = options;
+const createFactory = (rootDir) => {
   let _rootDir = rootDir;
   if (process.env.NODE_ENV === 'test') {
     _rootDir = '/tmp/test' + rootDir;
   }
-  const dbPath = path.join(_rootDir, bucket);
-  const fromCache = dbsOpened.get(dbPath);
-  if (fromCache) {
-    return fromCache;
-  }
-  const dbPromise = new Promise(async (resolve, reject) => {
-    // recursively setup directory
+
+  return function factory(options) {
+    const { bucket } = options || {};
+    const dbPath = path.join(_rootDir, bucket);
+    const fromCache = dbsOpened.get(dbPath);
+    if (fromCache) {
+      return fromCache;
+    }
     try {
-      await fs.ensureDir(dbPath);
+      validateBucket(bucket);
     } catch(err) {
-      return reject(err);
+      console.error(err);
+      return;
     }
-    const dbConfig = {
-      // disable cache since we're using a single
-      // globally shared cache. (file: global-cache.js)
-      cacheSize: require('bytes')(0)
-    };
-    const dataDb = encode(
-      leveldown(dbPath, dbConfig),
-      encoding
-    );
-    const metadata = await getMetadata(dbPath);
-    const db = new KV(dataDb, dbPath, options, metadata);
-    db.on('open', () => resolve(db));
-  });
-  const cacheHandler = db => {
-    if (db.isClosed()) {
-      return createInstance(_rootDir)(options);
-    }
-    return db;
+    const dbPromise = new Promise(async (resolve, reject) => {
+      // recursively setup directory
+      try {
+        await fs.ensureDir(dbPath);
+      } catch(err) {
+        return reject(err);
+      }
+      const { encoding = {} } = options;
+      const dataDb = encode(
+        leveldown(dbPath),
+        encoding
+      );
+      const metadata = await getMetadata(dbPath);
+      const db = new KV(dataDb, dbPath, options, metadata);
+      db.on('open', () => resolve(db));
+    });
+    dbsOpened.set(dbPath, dbPromise);
+    return dbPromise;
   };
-  dbsOpened.set(dbPath, dbPromise.then(cacheHandler));
-  return dbPromise;
 };
 
-module.exports = createInstance;
+module.exports = createFactory;
 module.exports.dbsOpened = dbsOpened;

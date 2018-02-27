@@ -9,7 +9,6 @@
 const getDbClient = require('./modules/get-db');
 const Debug = require('debug');
 const { AccessToken } = require('./login');
-const queryData = require('../isomorphic/query-data');
 const dbNsEvent = require('./modules/db-ns-event');
 const debug = {
   checkToken: Debug('evds.socket.checkToken'),
@@ -19,11 +18,9 @@ const debug = {
 const getTokenFromSocket = (socket) =>
   socket.handshake.query.token;
 
-const io = require('socket.io')();
-
 const createSubscribeFn = require('./modules/subscribe-fn.js');
 
-io.on('connection', (client) => {
+const onIoConnect = (client) => {
   require('debug')('evds.server.start.pid')(process.pid);
   // require('debug')('evds.connect')(client.handshake);
 
@@ -32,7 +29,6 @@ io.on('connection', (client) => {
     try {
       await AccessToken.verify(token);
     } catch(error) {
-      // client.emit(error.type, error.message);
       return next(new Error(error.message));
     }
     next();
@@ -47,23 +43,7 @@ io.on('connection', (client) => {
     onSubscribe(params, callback);
   });
 
-  // TODO: set `fillCache` option to `false` and use a globally shared cache for all stores. This way we can properly manage the caches instead of having each store manage it.
-  async function dbGet ({ bucket, key, query }, fn) {
-    try {
-      const db = await getDbClient(bucket);
-      const value = await db.get(key);
-      const response = queryData(query, value);
-      fn({ value: response });
-    } catch(err) {
-      if (err.type === 'NotFoundError') {
-        fn({ value: null });
-        return;
-      }
-      require('debug')('evds.db.get')(err);
-      fn({ error: err.message });
-    }
-  }
-  client.on('get', dbGet);
+  client.on('get', require('./modules/db-get'));
 
   const dbDelete = async ({ bucket, key }, fn) => {
     const db = await getDbClient(bucket);
@@ -97,7 +77,6 @@ io.on('connection', (client) => {
     });
   });
 
-  // TODO: add logging to this method #mvp
   const dbPut = require('./modules/db-put');
   client.on('put', dbPut);
 
@@ -127,6 +106,8 @@ io.on('connection', (client) => {
         bucket
       };
       await db.put(key, putValue);
+      const event = dbNsEvent('put', bucket, key);
+      db.emit(event, key, putValue);
       fn({});
     } catch(err) {
       debug.patch(err);
@@ -135,8 +116,13 @@ io.on('connection', (client) => {
   };
 
   client.on('patch', dbPatch);
-});
-
-module.exports = (server) => {
-  io.listen(server);
 };
+
+const init = (server, modules) => {
+  const io = require('socket.io')();
+  io.listen(server)
+    .on('connection', onIoConnect);
+  modules.forEach(fn => fn(io));
+};
+
+module.exports = init;

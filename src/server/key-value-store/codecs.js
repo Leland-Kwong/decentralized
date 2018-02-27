@@ -19,7 +19,7 @@ const d = {
   VALUE: '\n\n'
 };
 
-const encodeData = (input = {}) => {
+const encodeData = (input) => {
   const { value, type = (typeof value), meta = '' } = input;
   let normalizedValue;
   if ('undefined' === typeof value) {

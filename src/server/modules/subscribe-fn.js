@@ -47,7 +47,6 @@ module.exports = function createSubscribeFn(client, subscriptions) {
     once = false,
     query
   }, onAcknowledge) {
-    const keyToSubscribe = key;
     const watchEntireBucket = key === '';
     let db;
 
@@ -123,17 +122,12 @@ module.exports = function createSubscribeFn(client, subscriptions) {
 
         // setup subscription
         const onPut = async (key, { value }) => {
-          const ignore = !watchEntireBucket && key !== keyToSubscribe;
-          ignore && console.log(keyToSubscribe, key);
-          if (ignore) return;
           client.emit(
             eventId,
             { action: 'put', value: queryData(query, value) }
           );
         };
-        const onDel = async (key) => {
-          const ignore = !watchEntireBucket && key !== keyToSubscribe;
-          if (ignore) return;
+        const onDel = async () => {
           client.emit(eventId, { action: 'del' });
         };
         const putEvent = dbNsEvent('put', bucket, key);

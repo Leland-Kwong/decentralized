@@ -1,19 +1,8 @@
-const fs = require('fs-extra');
 const getDb = require('../src/server/modules/get-db');
 const Perf = require('perf-profile');
 const chance = require('chance')();
 const debug = require('debug');
 const log = (ns, ...rest) => debug(`bench.${ns}`)(...rest);
-
-const allResults = {
-  data: {},
-  add(perf) {
-    this.data[new Date().toISOString()] = perf;
-  },
-  writeToFile(path) {
-    fs.writeFile(path, JSON.stringify(this.data, null, 2));
-  }
-};
 
 async function Stream(db, options, onData) {
   const stream = db.createReadStream(options);
@@ -31,8 +20,8 @@ const items = new Array(10000).fill(0).map((_, i) => {
   return {
     type: 'json',
     actionType: 'put',
+    key: 'key-' + i,
     value: {
-      key: 'key-' + i,
       data: {
         list
       }
@@ -50,28 +39,42 @@ async function setup(insertData) {
     Perf('batch insert');
     // const batch = db.batch();
     await new Promise((resolve) => {
-      /*let count = 0;
+      let count = 0;
       function onPut() {
         count++;
         if (count === items.length) {
           resolve();
         }
       }
-      items.forEach(async item => {
-        const db = await getDb('bench.db');
-        db.put(item.value.key, item, onPut);
-      });*/
+      items.slice(0, 2500).forEach(async item => {
+        await getDb('bench.db');
+        db.put(item.key, item, onPut);
+      });
+
+      items.slice(2500, 5000).forEach(async item => {
+        await getDb('bench.db2');
+        db.put(item.key, item, onPut);
+      });
+
+      items.slice(5000, 7500).forEach(async item => {
+        await getDb('bench.db3');
+        db.put(item.key, item, onPut);
+      });
+
+      items.slice(7500).forEach(async item => {
+        await getDb('bench.db4');
+        db.put(item.key, item, onPut);
+      });
 
       // const version = Date.now().toString(36);
-      const batch = db.batch();
-      items.forEach(item => {
-        // item.value.version = version;
-        batch.put(item.value.key, item);
-      });
-      batch.write(resolve);
+      // const batch = db.batch();
+      // items.forEach(item => {
+      //   // item.value.version = version;
+      //   batch.put(item.key, item);
+      // });
+      // batch.write(resolve);
     });
     const perf = Perf('batch insert');
-    allResults.add(perf);
     // await batch.write();
     log('', perf);
   }
@@ -86,13 +89,15 @@ async function setup(insertData) {
 async function run() {
   try {
     const { db, cleanup } = await setup(true);
-    // warm up
-    await Stream(db, () => {});
     Perf('read stream');
-    await Stream(db, () => {});
+    let count = 0;
+    await Stream(db, { values: false },  () => {
+      count++;
+    });
     const perf = Perf('read stream');
     console.log(
       perf,
+      count
     );
     await cleanup();
     Perf.resetAll();
@@ -104,6 +109,7 @@ async function run() {
 
 async function readLog() {
   const opLog = await getDb('_opLog');
+
   Perf('read opLog');
   const results = [];
   await Stream(
@@ -118,25 +124,27 @@ async function readLog() {
   const filtered = results.filter(filterFn);
   log('', Perf('js array filter').end());
   console.log(
-    Perf('read opLog'),
+    Perf('read opLog').end(),
     results.length,
     filtered.length,
-    JSON.stringify(results[0]).length,
-    // results[0]
+    // JSON.stringify(results[0]).length,
+    results[0]
   );
+
+  Perf('delete opLog');
+  await opLog.drop();
+  log('', Perf('delete opLog'));
 }
 
 let count = 0;
 
 async function runBench(runCount) {
-  const perfResults = await run();
-  allResults.add(perfResults);
+  await run();
   count++;
   if (count < runCount) {
     runBench(runCount);
   } else {
     readLog();
-    allResults.writeToFile('./bench/results/db.json');
   }
 }
-runBench(6);
+runBench(5);

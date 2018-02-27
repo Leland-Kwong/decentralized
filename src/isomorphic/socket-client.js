@@ -4,8 +4,8 @@
 // TODO: add support for bucket mutation events for granular bucket observing. #mvp #performance
 // TODO: add support for listener removal for subscribers and offline listeners #mvp
 
-import createEventId from './client/event-id';
-import noop from '../isomorphic/noop';
+const createEventId = require('../public/client/event-id');
+const noop = require('./noop');
 
 // set database key context
 function keyFromBucket(key) {
@@ -16,7 +16,7 @@ function keyFromBucket(key) {
 
 const socketsByUrl = new Map();
 
-export default class Socket {
+class Socket {
   constructor(config) {
     const {
       dev = false
@@ -209,7 +209,7 @@ Object.assign(Socket.prototype, {
     return params;
   },
 
-  inspect: require('./client/inspect-db').default
+  inspect: require('../public/client/inspect-db')
 });
 
 Socket.prototype.promisifySocket = function(
@@ -236,3 +236,5 @@ Socket.prototype.promisifySocket = function(
   promisifiedCallback.promise = promise;
   return promisifiedCallback;
 };
+
+module.exports = Socket;

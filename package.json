@@ -12,7 +12,7 @@
   "scripts": {
     "start:dev": "NODE_ENV=development BABEL_ENV=development parcel index.html",
     "start:staging": "NODE_ENV=staging parcel index.html",
-    "start:dev.server": "DEBUG=evds.* NODE_ENV=development nodemon src/server/index.js",
+    "start:dev.server": "DEBUG=evds.* NODE_ENV=development nodemon src/examples/server-start.js",
     "test": "jest",
     "deploy": "now --dotenv",
     "bench.db": "DEBUG=bench.* NODE_ENV=bench node bench/index.js"
@@ -20,6 +20,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "async": "^2.6.0",
     "body-parser": "^1.18.2",
     "buffer": "^5.1.0",
     "bytes": "^3.0.0",

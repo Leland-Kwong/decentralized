@@ -2,14 +2,21 @@ const express = require('express');
 const app = express();
 const bodyParser = require('body-parser');
 
-app.use(bodyParser.json({ limit: '50KB' }));
-const server = require('http').createServer(app);
-server.listen(3000);
+module.exports = function startServer(options = {}) {
+  const {
+    port = 3000,
+    modules = []
+  } = options;
 
-require('./rest')(app);
-require('./socket')(server);
+  app.use(bodyParser.json({ limit: '50KB' }));
+  const server = require('http').createServer(app);
+  server.listen(port);
 
-const memwatch = require('memwatch-next');
-memwatch.on('leak', (info) => {
-  console.error('Memory leak detected:\n', info);
-});
+  require('./rest')(app);
+  require('./socket')(server, modules);
+
+  const memwatch = require('memwatch-next');
+  memwatch.on('leak', (info) => {
+    console.error('Memory leak detected:\n', info);
+  });
+};

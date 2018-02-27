@@ -1,23 +1,31 @@
 const startServer = require('../server/index');
+const SocketClient = require('../isomorphic/socket-client');
+const { socketServerApiKey: devToken } = require('../server/config');
 
-const tick = () => {
-  const socket = require('socket.io-client');
-  const connection = socket('http://localhost:3000', {
-    query: {
-      token: 'd98d51cebedfb4c7d8c2a74a'
-    }
-  });
-
-  let count = 0;
-  // setInterval(() => {
-  //   connection.emit('put', {
-  //     bucket: 'ticker',
-  //     key: 'count',
-  //     value: count++
-  //   });
-  // }, 1000);
-};
+// const connection = new SocketClient({
+//   uri: 'http://localhost:3000',
+//   token: devToken
+// });
+//
+// const tick = () => {
+//   connection.socket
+//     .on('connect', () => {
+//       console.log('server socket connected!');
+//     })
+//     .on('error', (err) => console.error(err));
+//
+//   let count = 0;
+//   setInterval(() => {
+//     connection.put({
+//       bucket: 'ticker',
+//       key: 'count',
+//       value: count++
+//     }).catch(console.error);
+//   }, 1000);
+// };
 
 startServer({
-  modules: [tick]
+  modules: [
+    // tick
+  ]
 });

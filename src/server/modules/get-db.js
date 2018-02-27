@@ -2,7 +2,6 @@ const KV = require('../key-value-store');
 const { dbBasePath } = require('../config');
 const { encodeData, decodeData } = require('../key-value-store/codecs');
 const LexId = require('../../isomorphic/lexicographic-id');
-const { validateBucket } = require('./validate-db-paths');
 
 const encoding = {
   valueEncoding: {
@@ -15,11 +14,7 @@ const encoding = {
 };
 
 // databases used for api calls from client
-const dbBase = KV(dbBasePath);
-const getDbClient = async (config) => {
-  validateBucket(config.bucket);
-  return await dbBase(config);
-};
+const dbFactory = KV(dbBasePath);
 
 const createEntryId = LexId();
 const PUT_TYPE = 'dbLog';
@@ -43,13 +38,28 @@ function createEntry(key, changeData) {
   return { value: putValue, entryId };
 }
 
-async function logChanges(db) {
-  const logDb = getDbClient({
-    bucket: '_opLog',
-    encoding,
-    cache: false
-  });
+const logDb = dbFactory({
+  bucket: '_opLog',
+  encoding,
+  cache: false
+});
 
+const createBatch = (() => {
+  let currentBatch = null;
+  return function createBatch(logDb) {
+    if (currentBatch) {
+      return currentBatch;
+    }
+    currentBatch = logDb.batch();
+    setTimeout(() => {
+      currentBatch.write(onLogAdded);
+      currentBatch = null;
+    }, 100);
+    return currentBatch;
+  };
+})();
+
+function logChanges(db) {
   const onBatch = async (ops) => {
     const batch = (await logDb).batch();
     for (let i = 0; i < ops.length; i++) {
@@ -63,14 +73,16 @@ async function logChanges(db) {
 
   const onPut = async (key, changeData) => {
     const entry = createEntry(key, changeData);
-    (await logDb).put(entry.entryId, entry.value, onLogAdded);
+    createBatch(await logDb)
+      .put(entry.entryId, entry.value);
   };
   db.on('put', onPut);
 
   const onDel = async (key) => {
     const changeData = { bucket: db.bucket, actionType: 'del' };
     const entry = createEntry(key, changeData);
-    (await logDb).put(entry.entryId, entry.value, onLogAdded);
+    createBatch(await logDb)
+      .put(entry.entryId, entry.value);
   };
   db.on('del', onDel);
 }
@@ -81,5 +93,5 @@ module.exports = (bucket) => {
     encoding,
     onOpened: logChanges
   };
-  return getDbClient(config);
+  return dbFactory(config);
 };

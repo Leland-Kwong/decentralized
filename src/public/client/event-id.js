@@ -1,7 +1,7 @@
-export const availableIds = [];
+const availableIds = [];
 let idsGenerated = 0;
 
-export default function createEventId(namespace, verbose = false) {
+module.exports = function createEventId(namespace, verbose = false) {
   if (availableIds.length) {
     return availableIds.pop();
   }
@@ -12,8 +12,12 @@ export default function createEventId(namespace, verbose = false) {
   const eventId = prefix + idsGenerated;
   idsGenerated++;
   return eventId;
-}
+};
 
-export const freeUpEventId = (id) => {
+module.exports.availableIds = availableIds;
+
+const freeUpEventId = (id) => {
   availableIds.push(id);
 };
+
+module.exports.freeUpEventId = freeUpEventId;
