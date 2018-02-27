@@ -1,62 +1,11 @@
+// TODO: improve debuggability by by creating path-scoped (bucket/key) eventIds.
 // TODO: make client isomorphic
 // TODO: during server syncing, we should also grab all change events from the oplog
 // TODO: add support for bucket mutation events for granular bucket observing. #mvp #performance
 // TODO: add support for listener removal for subscribers and offline listeners #mvp
 
 import createEventId from './client/event-id';
-import Emitter from 'tiny-emitter';
-import queryData from '../isomorphic/query-data';
-import { applyReducer } from 'fast-json-patch';
-import checkRange from '../isomorphic/is-value-in-range';
 import noop from '../isomorphic/noop';
-
-import {
-  persistToLocalDb,
-  getBucketFromLocalDb,
-  getFromLocalDb,
-  flushAndSyncLog,
-  logAction
-} from './client/localdb';
-
-const bucketsToIgnore = {
-  _oplog: true,
-  _sessions: true
-};
-
-let debug = () => noop;
-if (process.env.NODE_ENV === 'development') {
-  debug = require('debug');
-}
-
-class OfflineEmitter {
-  constructor() {
-    this.emitter = new Emitter();
-  }
-
-  eventName(bucket, key) {
-    return `${bucket}/${key}`;
-  }
-
-  on(bucket, key, cb) {
-    const eventName = this.eventName(bucket, key);
-    this.emitter.on(eventName, cb);
-    // returns a cleanup function
-    return () => this.emitter.off(eventName, cb);
-  }
-
-  emit(bucket, key, data = {}) {
-    this.emitter.emit(this.eventName(bucket, key), data);
-    const isRoot = key === '*';
-    if (isRoot) {
-      return;
-    }
-    const triggerBucketChange = () => this.emit(bucket, '*', data);
-    persistToLocalDb(bucket, key, data.value, data.action)
-      // if an error happens, we should rerender
-      .catch(triggerBucketChange)
-      .then(triggerBucketChange);
-  }
-}
 
 // set database key context
 function keyFromBucket(key) {
@@ -70,11 +19,10 @@ const socketsByUrl = new Map();
 export default class Socket {
   constructor(config) {
     const {
-      enableOffline = false,
+      dev = false
     } = config;
     this.config = config;
-    this.offlineEmitter = new OfflineEmitter();
-    this.enableOffline = enableOffline;
+    this.config.dev = dev;
     this.connect();
   }
 }
@@ -83,7 +31,7 @@ function connect() {
   const {
     token,
     transports = ['websocket'],
-    uri
+    uri,
   } = this.config;
 
   if ('undefined' === typeof uri) {
@@ -104,7 +52,6 @@ function connect() {
     socketsByUrl.set(uri, socket);
   }
 
-  socket.on('connect', () => flushAndSyncLog(this));
   this.socket = socket;
 }
 
@@ -144,33 +91,21 @@ Object.assign(Socket.prototype, {
 
   _subscribeBucket(params, cb, onAcknowledge, onComplete) {
     const args = arguments;
-    const { socket, enableOffline } = this;
+    const { socket } = this;
+    const _params = this.setupParams(params);
     const {
       bucket,
-      limit,
-      reverse,
-      gt,
-      lt,
-      gte,
-      lte,
-      keys,
-      values,
-      initialValue,
-      query,
       once
-    } = this.setupParams(params);
+    } = _params;
     const eventId =
       params.eventId =
-        createEventId();
-    const isInRange = checkRange(gt, gte, lt, lte);
-    let count = 0;
+        createEventId(`subscribeBucket/${bucket}`, this.config.dev);
     const onSubscribeBucket = (data) => {
       // ignore action frames
       if (data.action) {
         return;
       }
       if (data.done) {
-        count = 0;
         if (onComplete) {
           if (once) {
             socket.off(eventId, onSubscribeBucket);
@@ -179,55 +114,20 @@ Object.assign(Socket.prototype, {
         }
         return;
       }
-      // we'll do option filtering locally for offline mode since
-      // offline mode returns the entire dataset
-      if (this.enableOffline) {
-        if (limit && count++ >= limit) return;
-        if (!isInRange(data.key)) return;
-      }
+
       cb(data);
     };
 
-    const shouldCache = this.enableOffline && !bucketsToIgnore[bucket];
-    if (shouldCache) {
-      socket.on(eventId, (data) => {
-        if (data.done) return;
-        // debug('lucidbyte.subscribeBucket.offline')(data);
-        persistToLocalDb(bucket, data.key, data.value, data.action);
-      });
-    }
-    const subscribeOptions = enableOffline
-      /*
-        NOTE
-        For offline mode, only allow options that don't mutate the
-        result set. This is important because offline mode needs the
-        entire bucket for local database storage.
-       */
-      ? { bucket, reverse, keys: true, values: true }
-      : { query, bucket, limit, gte, gt, lte, lt, reverse, keys, values,
-        initialValue, once
-      };
-    subscribeOptions.eventId = eventId;
+    _params.eventId = eventId;
     socket.on(eventId, onSubscribeBucket);
     socket.emit(
       'subscribeBucket',
-      subscribeOptions,
+      _params,
       onAcknowledge
     );
-    const onOfflineBucketChange = (data) => {
-      console.log('lucidbyte.offline.subscribeBucket', data);
-      const iterateFn = ({ key, value }) => {
-        cb({ value: queryData(query, value), key });
-      };
-      getBucketFromLocalDb(bucket, params, iterateFn, onComplete);
-    };
-    const cleanupOfflineEmitter =
-      this.offlineEmitter.on(bucket, '*', onOfflineBucketChange);
-    this.triggerCallbackIfOffline(params, cb, onComplete);
     socket.once('disconnect', () => {
       socket.once('reconnect', () => {
-        cleanupOfflineEmitter();
-        this.subscribeBucket(...args);
+        this._subscribeBucket(...args);
       });
     });
   },
@@ -235,57 +135,34 @@ Object.assign(Socket.prototype, {
   _subscribeKey(params, subscriber, onAcknowledge) {
     const args = arguments;
     const { socket } = this;
-    const { bucket, key, once } = this.setupParams(params);
+    const { once } = params;
     const eventId =
       params.eventId =
         createEventId();
-    if (this.enableOffline) {
-      const offlineCb = (data) => {
-        debug('lucidbyte.offline.subscribeKey')(data);
-        persistToLocalDb(bucket, key, data.value, data.action);
-      };
-      socket.on(eventId, offlineCb);
-    }
     socket[once ? 'once' : 'on'](eventId, subscriber);
     socket.emit(
       'subscribe',
       params,
       onAcknowledge
     );
-    const cleanupOfflineEmitter =
-      this.offlineEmitter.on(bucket, key, (data) => {
-        console.log('lucidbyte.offline.subscribe', data);
-        subscriber(data);
-      });
-    this.triggerCallbackIfOffline(params, subscriber);
     socket.once('disconnect', () => {
       socket.once('reconnect', () => {
-        this.subscribeKey(...args);
-        cleanupOfflineEmitter();
+        this._subscribeKey(...args);
       });
     });
   },
 
   subscribe(params, subscriber, onComplete = noop, onAcknowledge = noop) {
-    const { bucket, key } = this.setupParams(params);
-    require('debug')('lucidbyte.subscribe')(bucket, key);
-    if (typeof params.key === 'undefined') {
-      return this._subscribeBucket(params, subscriber, onAcknowledge, onComplete);
+    const _params = this.setupParams(params);
+    if (typeof _params.key === 'undefined') {
+      return this._subscribeBucket(_params, subscriber, onAcknowledge, onComplete);
     }
-    this._subscribeKey(params, subscriber, onAcknowledge);
+    this._subscribeKey(_params, subscriber, onAcknowledge);
   },
 
   put(params, cb) {
-    const { bucket, key, value, _syncing } = this.setupParams(params);
+    const { bucket, key, value } = this.setupParams(params);
     const { socket } = this;
-
-    if (!_syncing) {
-      const logPromise = logAction({ action: 'put', bucket, key, value }, socket);
-      if (!this.isConnected()) {
-        this.offlineEmitter.emit(bucket, key, { value, action: 'put' });
-        return logPromise;
-      }
-    }
 
     const callback = this.promisifySocket('put', params, cb);
     socket.emit('put', { bucket, key, value }, callback);
@@ -294,27 +171,11 @@ Object.assign(Socket.prototype, {
 
   patch(params, cb) {
     // accepts either `value` or `ops` property as the patch
-    const { bucket, key, value, ops, _syncing } = this.setupParams(params);
+    const { bucket, key, value, ops } = this.setupParams(params);
     const { socket } = this;
     const patch = value || ops;
 
-    if (!_syncing) {
-      const entry = { action: 'patch', bucket, key, value: patch };
-      logAction(entry, socket);
-      if (!this.isConnected()) {
-        const curValue = getFromLocalDb(bucket, key);
-        return curValue.then(val => {
-          const newValue = patch.reduce(applyReducer, val);
-          this.offlineEmitter.emit(bucket, key, { value: newValue, action: 'patch' });
-        });
-      }
-    }
-
-    const callback = this.promisifySocket('patch', params, cb);
-    /*
-      NOTE: send data pre-stringified so we don't have to stringify it again for
-      the oplog.
-     */
+    const callback = this.promisifySocket(cb);
     socket.emit('patch', { bucket, key, ops: patch }, callback);
     return callback.promise;
   },
@@ -322,30 +183,18 @@ Object.assign(Socket.prototype, {
   // gets the value once
   get(params, cb) {
     const { socket } = this;
-    let serverOptions = this.setupParams(params);
-    const callback = this.promisifySocket('get', serverOptions, cb);
-    if (this.enableOffline) {
-      serverOptions = { ...serverOptions };
-      delete serverOptions.query;
-    }
-    socket.emit('get', serverOptions, callback);
+    const _params = this.setupParams(params);
+    const callback = this.promisifySocket(cb);
+    socket.emit('get', _params, callback);
     return callback.promise;
   },
 
   del(params, cb) {
     const { socket } = this;
-    const { bucket, key, _syncing } = this.setupParams(params);
+    const _params = this.setupParams(params);
 
-    if (!_syncing) {
-      const logPromise = logAction({ action: 'del', bucket, key }, socket);
-      if (!this.isConnected()) {
-        this.offlineEmitter.emit(bucket, key, { action: 'del' });
-        return logPromise;
-      }
-    }
-
-    const callback = this.promisifySocket('del', params, cb);
-    socket.emit('delete', { bucket, key }, callback);
+    const callback = this.promisifySocket(cb);
+    socket.emit('delete', _params, callback);
     return callback.promise;
   },
 
@@ -360,36 +209,15 @@ Object.assign(Socket.prototype, {
     return params;
   },
 
-  triggerCallbackIfOffline(params, cb, onComplete) {
-    if (!this.enableOffline) {
-      return;
-    }
-    const { bucket, key, query } = params;
-    if (!this.isConnected()) {
-      const getBucket = typeof key === 'undefined';
-      if (getBucket) {
-        return getBucketFromLocalDb(bucket, params, ({ key, value }) => {
-          cb({ value: queryData(query, value), key });
-        }, onComplete);
-      }
-      return getFromLocalDb(bucket, key)
-        .then(value => cb({ value: queryData(query, value), key }));
-    }
-    return cb;
-  },
-
   inspect: require('./client/inspect-db').default
 });
 
 Socket.prototype.promisifySocket = function(
-  actionType,
-  params = {},
   // TODO: add support for callbackFn to invoke instead of promise
   // cb
 ) {
   let promisifiedCallback;
   let fulfilled = false;
-  const { bucket, key, query } = params;
   const promise = new Promise((resolve, reject) => {
     // default timeout handler to prevent callback from hanging indefinitely
     const timeout = (!this.enableOffline && !this.isConnected())
@@ -402,45 +230,9 @@ Socket.prototype.promisifySocket = function(
       fulfilled = true;
       clearTimeout(timeout);
       if (error) reject(error);
-      else {
-        if (this.enableOffline) {
-          let valueToPersist;
-          if (actionType === 'put') {
-            valueToPersist = Promise.resolve(params.value);
-          } else if (actionType === 'patch') {
-            const fromLocalDb = getFromLocalDb(bucket, key);
-            valueToPersist = fromLocalDb.then(value => {
-              const ops = params.value || params.ops;
-              return ops.reduce(applyReducer, value);
-            }).catch((err) => {
-              console.error('error', err, params);
-            });
-          } else {
-            valueToPersist = Promise.resolve(value);
-          }
-          valueToPersist.then(v => {
-            return persistToLocalDb(bucket, key, v, actionType);
-          });
-        }
-        /*
-          NOTE: when offline is enabled, the backend will return the full
-          pre-queried value so the client-side can cache it. All querying is
-          then done on the client-side instead.
-         */
-        const valueToSend = this.enableOffline
-          ? queryData(query, value)
-          : value;
-        resolve(valueToSend);
-      }
+      else resolve(value);
     };
   });
   promisifiedCallback.promise = promise;
-  if (this.enableOffline && !this.isConnected()) {
-    if (actionType === 'get') {
-      getFromLocalDb(bucket, key)
-        .catch(console.warn)
-        .then(value => promisifiedCallback({ value }));
-    }
-  }
   return promisifiedCallback;
 };

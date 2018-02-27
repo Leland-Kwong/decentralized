@@ -129,7 +129,6 @@ function startApp() {
   class Example extends Component {
     state = {
       message: '',
-      output: '',
       items: [],
       notification: null,
       started: false
@@ -139,12 +138,14 @@ function startApp() {
       const { token } = this.props;
       sockClient = new Socket({
         token,
-        enableOffline: false,
-        uri: serverApiBaseRoute
+        uri: serverApiBaseRoute,
+        dev: true,
       });
+
       const clientNoOffline = new Socket({
         token,
-        uri: serverApiBaseRoute
+        uri: serverApiBaseRoute,
+        dev: true
       });
       tail(clientNoOffline);
 
@@ -218,8 +219,8 @@ function startApp() {
           query: /* GraphQL */`
             { message }
           `
-        }, ({ value }) => {
-          console.log(value);
+        }, (data) => {
+          const { value } = data;
           this.setState({ message: value.message });
         });
 
