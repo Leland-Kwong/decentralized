@@ -47,21 +47,24 @@ async function setup(insertData) {
         }
       }
       items.slice(0, 2500).forEach(async item => {
-        await getDb('bench.db');
+        const db = await getDb('bench.db');
         db.put(item.key, item, onPut);
       });
 
       items.slice(2500, 5000).forEach(async item => {
+        const db = await getDb('bench.db');
         await getDb('bench.db2');
         db.put(item.key, item, onPut);
       });
 
       items.slice(5000, 7500).forEach(async item => {
+        const db = await getDb('bench.db');
         await getDb('bench.db3');
         db.put(item.key, item, onPut);
       });
 
       items.slice(7500).forEach(async item => {
+        const db = await getDb('bench.db');
         await getDb('bench.db4');
         db.put(item.key, item, onPut);
       });
@@ -89,9 +92,10 @@ async function setup(insertData) {
 async function run() {
   try {
     const { db, cleanup } = await setup(true);
+    // warm it up
     Perf('read stream');
     let count = 0;
-    await Stream(db, { values: false },  () => {
+    await Stream(db, { values: false }, () => {
       count++;
     });
     const perf = Perf('read stream');
@@ -128,7 +132,7 @@ async function readLog() {
     results.length,
     filtered.length,
     // JSON.stringify(results[0]).length,
-    results[0]
+    // results[0]
   );
 
   Perf('delete opLog');
@@ -147,4 +151,4 @@ async function runBench(runCount) {
     readLog();
   }
 }
-runBench(5);
+runBench(10);

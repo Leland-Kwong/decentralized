@@ -9,7 +9,9 @@ module.exports = function createEventId(namespace, verbose = false) {
   if (verbose) {
     prefix = namespace ? namespace + '/' : '';
   }
-  const eventId = prefix + idsGenerated;
+  const eventId = prefix
+    ? prefix + idsGenerated
+    : idsGenerated;
   idsGenerated++;
   return eventId;
 };

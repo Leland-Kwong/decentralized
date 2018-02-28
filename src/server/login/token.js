@@ -4,14 +4,12 @@ const crypto = require('crypto');
 const ms = require('ms');
 const getDbClient = require('../modules/get-db');
 const sessionsDb = getDbClient('_sessions');
-const { socketServerApiKey, socketClientDevAuthToken } = require('../config');
 
 // grabs from cache first, then db if needed
 const db = {
   async add(token) {
-    const { tokenId, userId, expiresAt } = token;
-    const fullToken = { tokenId, userId, expiresAt };
-    const putValue = { type: 'json', value: fullToken };
+    const { tokenId } = token;
+    const putValue = { type: 'json', value: token };
 
     try {
       await (await sessionsDb)
@@ -28,15 +26,13 @@ const db = {
       const fromDb = await db.get(tokenId);
       return fromDb;
     } catch(err) {
-      if (err.type === 'NotFoundError') {
-        return null;
-      }
       console.error(err);
     }
   },
   async delete(tokenId) {
     try {
-      return (await sessionsDb).del(tokenId);
+      (await sessionsDb).del(tokenId);
+      return { ok: 1 };
     } catch (err) {
       console.log(err);
     }
@@ -79,15 +75,6 @@ const Token = {
     return await db.delete(tokenId);
   },
   async verify(tokenId) {
-    // NOTE: This will only work for development environments based on '.env.development' file.
-    if (
-      process.env.NODE_ENV === 'development' && (
-        tokenId === socketServerApiKey
-        || tokenId === socketClientDevAuthToken
-      )
-    ) {
-      return true;
-    }
     const token = await db.get(tokenId);
     const time = TimeMS();
     const hasExpired = token && (token.expiresAt < time);
@@ -95,9 +82,9 @@ const Token = {
       throw new TokenError('token expired');
     }
     if (!token) {
-      throw new TokenError('token not found');
+      throw new TokenError('invalid token');
     }
-    return true;
+    return token;
   },
   async refresh(tokenId, expiresAt = defaultExpiresAt()) {
     try {

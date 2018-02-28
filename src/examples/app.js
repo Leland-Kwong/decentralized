@@ -1,4 +1,4 @@
-// TODO: add offline support by building up a log of changes to apply to server. Also cache responses to web storage.
+// TODO: add offline support #enhancement
 
 import React, { Component } from 'react';
 import { render } from 'react-dom';
@@ -9,9 +9,9 @@ import Input from './Input';
 import debounce from 'lodash.debounce';
 import { getTimeMS } from '../isomorphic/lexicographic-id';
 import { HotKeys } from 'react-hotkeys';
-import { serverApiBaseRoute } from '../public/client/config';
+import { serverApiBaseRoute, setEnv } from '../public/client/config';
 
-const devToken = '6285db0b82e7b141b866bde7';
+setEnv('development');
 
 const log = (ns, ...rest) =>
   console.log(`lucidbyte.client.${ns}`, ...rest);
@@ -116,7 +116,7 @@ function tail(db) {
       });
     });
   db.bucket('_sessions')
-    .inspect(res => {
+    .subscribe(res => {
       console.log('[SESSIONS]', res);
     });
   db.bucket('leland.chat')
@@ -137,16 +137,17 @@ function startApp() {
     }
 
     componentDidMount() {
+      const uri = serverApiBaseRoute;
       const { token } = this.props;
       sockClient = new Socket({
         token,
-        uri: serverApiBaseRoute,
+        uri,
         dev: true,
       });
 
       const client2 = new Socket({
         token,
-        uri: serverApiBaseRoute,
+        uri,
         dev: true
       });
       tail(client2);
@@ -218,7 +219,6 @@ function startApp() {
         .bucket('ticker')
         .key('count')
         .subscribe({}, (data) => {
-          console.log(data);
           this.setState({ ticker: data.value });
         });
 
@@ -296,8 +296,9 @@ function startApp() {
     }, 500)
 
     handleLogout = () => {
-      auth.logout().catch(err => console.error(err))
-        .then(res => console.log(res));
+      auth.logout()
+        .then(res => console.log(res))
+        .catch(err => console.error(err));
       sockClient.close();
       this.props.onLogout();
     }
@@ -308,7 +309,6 @@ function startApp() {
       if (!value) {
         return;
       }
-      console.log(value);
       const key = Date.now().toString();
       const items = {
         ...this.state.items,
@@ -415,10 +415,11 @@ function startApp() {
     }
   }
 
+  // const devToken = '6285db0b82e7b141b866bde7';
   class App extends Component {
     state = {
       loggedIn: session.get().accessToken || false,
-      token: devToken || session.get().accessToken,
+      token: session.get().accessToken,
       sessionInfo: session.get()
     }
 

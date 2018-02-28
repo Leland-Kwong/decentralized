@@ -1,6 +1,7 @@
-// TODO: add syncing support. Syncing works by syncing the db files #mvp
-// TODO: add support for built-in data types so we can set a default value if it doesn't already exist. For this to work, the developer will also have to pass in a `type` property for write operations.
 // TODO: user permissions #mvp
+// TODO: add syncing support. Syncing works by syncing the db files #mvp
+// TODO: add request throttling
+// TODO: add support for built-in data types so we can set a default value if it doesn't already exist. For this to work, the developer will also have to pass in a `type` property for write operations. #enhancement
 // TODO: user management #enhancement
 // TODO: add file upload support #enhancement
 // TODO: add support for *key* filtering to `db.on('put')` when watching a keypath of {bucket}/{key}. Right now, each subscription function gets called whenever the bucket changes. #performance
@@ -8,30 +9,27 @@
 // TODO: add support for batch writes. This way when syncing happens, change events will be throttled. #performance #leveldb.batch
 const getDbClient = require('./modules/get-db');
 const Debug = require('debug');
-const { AccessToken } = require('./login');
 const dbNsEvent = require('./modules/db-ns-event');
 const debug = {
   checkToken: Debug('evds.socket.checkToken'),
   patch: Debug('evds.db.patch'),
   stream: Debug('evds.db.stream')
 };
-const getTokenFromSocket = (socket) =>
-  socket.handshake.query.token;
 
 const createSubscribeFn = require('./modules/subscribe-fn.js');
 
-const onIoConnect = (client) => {
+const handleClientConnection = (dbAccessControl) => (client) => {
   require('debug')('evds.server.start.pid')(process.pid);
   // require('debug')('evds.connect')(client.handshake);
 
-  client.use(async function checkToken(_, next) {
-    const token = getTokenFromSocket(client);
-    try {
-      await AccessToken.verify(token);
-    } catch(error) {
-      return next(new Error(error.message));
+  client.use(async function checkAccess(packet, next) {
+    if (dbAccessControl) {
+      const [event, args] = packet;
+      return dbAccessControl(event, args, client, next);
     }
-    next();
+    const msg = 'Access control function missing. For security reasons, an'
+    + 'access control function must be provided.';
+    next(new Error(msg));
   });
 
   const dbSubscriptions = new Map();
@@ -118,11 +116,12 @@ const onIoConnect = (client) => {
   client.on('patch', dbPatch);
 };
 
-const init = (server, modules) => {
+const init = (server, modules, accessControlFn) => {
   const io = require('socket.io')();
   io.listen(server)
-    .on('connection', onIoConnect);
+    .on('connection', handleClientConnection(accessControlFn));
   modules.forEach(fn => fn(io));
+  return io;
 };
 
 module.exports = init;

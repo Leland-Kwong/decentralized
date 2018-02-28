@@ -1,22 +1,49 @@
 const express = require('express');
-const app = express();
 const bodyParser = require('body-parser');
 
-module.exports = function startServer(options = {}) {
-  const {
-    port = 3000,
-    modules = []
-  } = options;
+const memwatch = require('memwatch-next');
+memwatch.on('leak', (info) => {
+  console.error('Memory leak detected:\n', info);
+});
 
-  app.use(bodyParser.json({ limit: '50KB' }));
-  const server = require('http').createServer(app);
-  server.listen(port);
+class App {
+  constructor(options = {}) {
+    this.options = options;
+    this.modules = [];
+  }
 
-  require('./rest')(app);
-  require('./socket')(server, modules);
+  use(fn) {
+    this.modules.push(fn);
+    return this;
+  }
 
-  const memwatch = require('memwatch-next');
-  memwatch.on('leak', (info) => {
-    console.error('Memory leak detected:\n', info);
-  });
-};
+  // Permission function to control database access. Gets called for every
+  // request to the database
+  dbAccessControl(fn) {
+    this.dbAccessControlFn = fn;
+    return this;
+  }
+
+  start() {
+    const {
+      port = 3000,
+    } = this.options;
+
+    const app = express();
+    app.use(bodyParser.json({ limit: '10MB' }));
+    const server = require('http').createServer(app);
+    // setup express server
+    require('./rest')(app);
+    // setup socket server
+    require('./socket')(
+      server,
+      this.modules,
+      this.dbAccessControlFn
+    );
+    server.listen(port);
+
+    return app;
+  }
+}
+
+module.exports = App;

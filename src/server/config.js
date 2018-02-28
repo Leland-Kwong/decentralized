@@ -27,6 +27,6 @@ module.exports = {
     .createHash('md5')
     .update(secret)
     .digest('hex'),
-  socketServerApiKey: process.env.SOCKET_SERVER_API_KEY,
+  socketServerAdminApiKey: process.env.SOCKET_SERVER_ADMIN_API_KEY,
   socketClientDevAuthToken: process.env.SOCKET_CLIENT_DEV_AUTH_TOKEN
 };

@@ -1,5 +1,3 @@
-// TODO: use custom encoding for client db and default to vanilla for all others.
-
 const path = require('path');
 const delDir = require('del');
 const LevelUp = require('levelup');
@@ -29,10 +27,12 @@ function kvError({ msg, type }) {
   }
 }
 
+// (https://github.com/Level/leveldown#leveldownopenoptions-callback)
 const dbBaseConfig = {
   // disable cache since we're using a single
   // globally shared cache. (file: global-cache.js)
-  cacheSize: require('bytes')(0)
+  cacheSize: 0,
+  maxOpenFiles: 10000
 };
 
 // NOTE: Base class for all databases. Has some built in defaults to make it a bit easier to use.
@@ -44,7 +44,7 @@ class KV extends LevelUp {
       onOpened,
       cache = true
     } = options;
-    this.options = options;
+    this.cache = cache;
     this.bucket = bucket;
     this.rootDir = rootDir;
     this.metadata = metadata;
@@ -101,24 +101,32 @@ KVProto.cacheKey = function(valueKey) {
 
 const getProto = LevelUp.prototype.get;
 const getOptions = { fillCache: false };
-const handleGetResult = data => {
-  const { parsed, raw } = data;
-  dbGlobalCache.set(path, {
-    value: parsed,
-    size: Buffer.byteLength(raw + path)
-  });
-  return parsed;
+const handleGetError = error => {
+  // we can ignore not found errors
+  if (error.type === 'NotFoundError') {
+    return null;
+  }
+  console.error('[GET ERROR]', error);
 };
 KVProto.get = function getWithGlobalCache(key) {
-  if (this.options.cache) {
-    const path = this.cacheKey(key);
+  const path = this.cacheKey(key);
+  if (this.cache) {
     const fromCache = dbGlobalCache.get(path);
     if (fromCache) {
       return fromCache.value;
     }
   }
+  const handleGetResult = data => {
+    const { parsed, raw } = data;
+    dbGlobalCache.set(path, {
+      value: parsed,
+      size: Buffer.byteLength(raw + path)
+    });
+    return parsed;
+  };
   return getProto.call(this, key, getOptions)
-    .then(handleGetResult);
+    .then(handleGetResult)
+    .catch(handleGetError);
 };
 
 /*
@@ -129,14 +137,9 @@ KVProto.get = function getWithGlobalCache(key) {
   return the in-flight request.
  */
 const createFactory = (rootDir) => {
-  let _rootDir = rootDir;
-  if (process.env.NODE_ENV === 'test') {
-    _rootDir = '/tmp/test' + rootDir;
-  }
-
   return function factory(options) {
     const { bucket } = options || {};
-    const dbPath = path.join(_rootDir, bucket);
+    const dbPath = path.join(rootDir, bucket);
     const fromCache = dbsOpened.get(dbPath);
     if (fromCache) {
       return fromCache;

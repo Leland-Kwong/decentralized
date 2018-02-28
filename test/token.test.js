@@ -53,7 +53,7 @@ describe('auth token methods', () => {
   test('destroy', async () => {
     const { tokenId } = await createToken();
     await destroy(tokenId);
-    expect(await getByTokenId(tokenId)).toBe(null);
+    expect(await getByTokenId(tokenId)).toEqual(null);
   });
 
   test('refresh', async () => {
@@ -82,12 +82,10 @@ describe('auth token methods', () => {
 
 });
 
-it('verifies auth token', async () => {
+test('verifies auth token', async () => {
   const { tokenId } = await createToken({ expiresAt: new Date().getTime() + 10 });
   const verifyResult = await verify(tokenId);
-  describe('is valid on create', () => {
-    expect(verifyResult).toBe(true);
-  });
+  expect(verifyResult).toBeTruthy();
 });
 
 test('creates multiple tokens with same userId - handle multiple browsers', async () => {

@@ -122,10 +122,10 @@ export const requestAccessToken = (loginCode) => {
 export const logout = () => {
   const token = session.get().accessToken;
   session.end();
-  return fetch(`${serverApiBaseRoute}/logout/${token}`, {
+  return fetch(`${serverApiBaseRoute}/api/logout/${token}`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json'
     }
-  });
+  }).then(res => res.json());
 };

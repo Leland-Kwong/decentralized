@@ -7,6 +7,8 @@
 const createEventId = require('../public/client/event-id');
 const noop = require('./noop');
 
+const isServer = typeof window === 'undefined';
+
 // set database key context
 function keyFromBucket(key) {
   const copy = this.clone();
@@ -50,6 +52,15 @@ function connect() {
     });
 
     socketsByUrl.set(uri, socket);
+
+    if (!isServer) {
+      window.addEventListener('focus', function connectIfNeeded() {
+        // try to immediately reconnect
+        if (!socket.connected) {
+          socket.connect();
+        }
+      });
+    }
   }
 
   this.socket = socket;
@@ -89,14 +100,13 @@ Object.assign(Socket.prototype, {
     return Object.create(inst, proto);
   },
 
-  _subscribeBucket(params, cb, onAcknowledge, onComplete) {
+  _subscribeBucket(params, cb, onComplete, onAcknowledge) {
     const args = arguments;
     const { socket } = this;
-    const _params = this.setupParams(params);
     const {
       bucket,
       once
-    } = _params;
+    } = params;
     const eventId =
       params.eventId =
         createEventId(`subscribeBucket/${bucket}`, this.config.dev);
@@ -118,11 +128,11 @@ Object.assign(Socket.prototype, {
       cb(data);
     };
 
-    _params.eventId = eventId;
+    params.eventId = eventId;
     socket.on(eventId, onSubscribeBucket);
     socket.emit(
       'subscribeBucket',
-      _params,
+      params,
       onAcknowledge
     );
     socket.once('disconnect', () => {
@@ -154,8 +164,12 @@ Object.assign(Socket.prototype, {
 
   subscribe(params, subscriber, onComplete = noop, onAcknowledge = noop) {
     const _params = this.setupParams(params);
+    // if first argument is a function, then that means params is not being passed in
+    if (typeof params === 'function') {
+      return this.subscribe(_params, params, subscriber, onComplete);
+    }
     if (typeof _params.key === 'undefined') {
-      return this._subscribeBucket(_params, subscriber, onAcknowledge, onComplete);
+      return this._subscribeBucket(_params, subscriber, onComplete, onAcknowledge);
     }
     this._subscribeKey(_params, subscriber, onAcknowledge);
   },
@@ -203,7 +217,10 @@ Object.assign(Socket.prototype, {
   },
 
   // sets parameters that have set by chained methods
-  setupParams(params = {}) {
+  setupParams(params) {
+    params = (!params || ('object' !== typeof params))
+      ? {}
+      : params;
     params.bucket = params.bucket || this._bucket;
     params.key = params.key || this._key;
     return params;
@@ -220,7 +237,7 @@ Socket.prototype.promisifySocket = function(
   let fulfilled = false;
   const promise = new Promise((resolve, reject) => {
     // default timeout handler to prevent callback from hanging indefinitely
-    const timeout = (!this.enableOffline && !this.isConnected())
+    const timeout = !this.isConnected()
       ? setTimeout(reject, 5000)
       : 0;
     promisifiedCallback = ({ error, value }) => {
