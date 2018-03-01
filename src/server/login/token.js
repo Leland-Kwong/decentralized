@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const ms = require('ms');
 const getDbClient = require('../modules/get-db');
+const { putWithLog, delWithLog } = require('../key-value-store');
 
 function Token(params) {
   const { storeName = 'client' } = params;
@@ -16,8 +17,8 @@ function Token(params) {
       const putValue = { type: 'json', value: token, actionType: 'put' };
 
       try {
-        await (await sessionsDb)
-          .putWithLog({ bucket, key: tokenId }, putValue);
+        const db = await sessionsDb;
+        await putWithLog(db, { bucket, key: tokenId }, putValue);
       } catch(err) {
         console.log(err);
         throw 'error adding token to db';
@@ -35,7 +36,7 @@ function Token(params) {
     },
     async delete(tokenId) {
       try {
-        (await sessionsDb).delWithLog({ bucket, key: tokenId });
+        await delWithLog(await sessionsDb, { bucket, key: tokenId });
         return { ok: 1 };
       } catch (err) {
         console.log(err);

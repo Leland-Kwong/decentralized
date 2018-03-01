@@ -1,4 +1,5 @@
 const getDbClient = require('./get-db');
+const { putWithLog } = require('../key-value-store');
 
 module.exports = async function dbPut(data, fn) {
   const {
@@ -15,7 +16,7 @@ module.exports = async function dbPut(data, fn) {
   const putValue = { type, value, actionType: 'put' };
   const putKey = { bucket, key };
   try {
-    await db.putWithLog(putKey, putValue);
+    await putWithLog(db, putKey, putValue);
     fn && fn({});
   } catch(err) {
     require('debug')('db.put')(err);

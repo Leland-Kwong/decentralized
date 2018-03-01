@@ -1,6 +1,6 @@
 const getDbClient = require('../src/server/modules/get-db');
-const { dbsOpened } = require('../src/server/key-value-store');
-const Stream = require('../src/server/utils/stream');
+const { dbsOpened, putWithLog, delWithLog } = require('../src/server/key-value-store');
+const Stream = require('../src/server/key-value-store/utils/stream');
 
 afterAll(async () => {
   // drop dbs
@@ -26,7 +26,7 @@ describe('key value store', () => {
     const value1 = { foo: 'bar' };
     const key1 = { bucket, key: '/foo' };
     try {
-      await db.putWithLog(key1, { type: 'json', value: value1, actionType: 'put' });
+      await putWithLog(db, key1, { type: 'json', value: value1, actionType: 'put' });
     } catch(err) {
       console.error(err);
       return;
@@ -41,7 +41,7 @@ describe('key value store', () => {
 
     // check that cache properly gets invalidated after a put
     const value2 = { foo2: 'bar2' };
-    await db.putWithLog(key1, { type: 'json', value: value2, actionType: 'put' });
+    await putWithLog(db, key1, { type: 'json', value: value2, actionType: 'put' });
     const getResponse2 = await db.get(key1);
     expect(getResponse2).toEqual(value2);
 
@@ -49,7 +49,7 @@ describe('key value store', () => {
     expect(dbGlobalCache.keys().length).toBe(1);
 
     const key2 = { bucket, key: 'foo2' };
-    await db.putWithLog(key2, { value: 'foo', actionType: 'put' });
+    await putWithLog(db, key2, { value: 'foo', actionType: 'put' });
     await db.get(key2);
   });
 
@@ -59,8 +59,8 @@ describe('key value store', () => {
     const key = 'key';
     const putKey = { bucket, key };
     const value = { value: 'bar', actionType: 'put' };
-    await db.putWithLog(putKey, value);
-    await db.delWithLog(putKey);
+    await putWithLog(db, putKey, value);
+    await delWithLog(db, putKey);
 
     const onData = jest.fn();
     const bucketOplog = '_opLog';

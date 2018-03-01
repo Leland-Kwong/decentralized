@@ -1,5 +1,6 @@
 const getDbClient = require('./get-db');
-const deleteBucket = require('../utils/delete-bucket');
+const { delWithLog } = require('../key-value-store');
+const deleteBucket = require('../key-value-store/utils/delete-bucket');
 
 const dbDelete = async ({ bucket, key, storeName = 'client' }, fn) => {
   const db = await getDbClient(storeName);
@@ -9,7 +10,7 @@ const dbDelete = async ({ bucket, key, storeName = 'client' }, fn) => {
     if (deleteEntireBucket) {
       await deleteBucket(db, bucket);
     } else {
-      await db.delWithLog({ bucket, key });
+      await delWithLog(db, { bucket, key });
     }
     fn({});
   } catch(err) {

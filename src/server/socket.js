@@ -9,6 +9,7 @@
 // TODO: add support for server-side functions #enhancement
 // TODO: add support for batch writes. This way when syncing happens, change events will be throttled. #performance #leveldb.batch
 const getDbClient = require('./modules/get-db');
+const { putWithLog } = require('./key-value-store');
 const Debug = require('debug');
 const debug = {
   checkToken: Debug('evds.socket.checkToken'),
@@ -91,7 +92,7 @@ const handleClientConnection = (dbAccessControl) => (client) => {
         patch: patchObject,
         actionType: 'patch',
       };
-      await db.putWithLog(nsKey, putValue);
+      await putWithLog(db, nsKey, putValue);
       fn({});
     } catch(err) {
       debug.patch(err);

@@ -1,4 +1,4 @@
-import Stream from '../src/server/utils/stream';
+import Stream from '../src/server/key-value-store/utils/stream';
 import getDbClient from '../src/server/modules/get-db';
 
 test('utils.stream', async () => {

@@ -1,4 +1,5 @@
 const getDb = require('../src/server/modules/get-db');
+const KV = require('../src/server/key-value-store');
 const Perf = require('perf-profile');
 const debug = require('debug');
 const log = (ns, ...rest) => debug(`bench.${ns}`)(...rest);
@@ -61,7 +62,7 @@ async function bench(insertData) {
       const method = 'putWithLog';
       items.forEach(async item => {
         const db = await getDb('client');
-        db[method](item.key, item, onPut);
+        KV[method](db, item.key, item, onPut);
       });
 
       // const version = Date.now().toString(36);

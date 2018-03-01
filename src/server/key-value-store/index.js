@@ -147,24 +147,24 @@ KVProto.get = function getWithGlobalCache(key) {
     .catch(handleGetError);
 };
 
-KVProto.putWithLog = function(putKey, value, callback) {
+const putWithLog = function(db, putKey, value, callback) {
   const entry = LogEntry(putKey, value);
-  return this.batch()
+  return db.batch()
     .put(putKey, value)
     .put(entry.key, entry.value)
     .write(callback);
 };
 
-KVProto.delWithLog = function(putKey, callback) {
+const delWithLog = function(db, putKey, callback) {
   const entry = LogEntry(putKey, { actionType: 'del' });
-  return this.batch()
+  return db.batch()
     .del(putKey)
     .put(entry.key, entry.value)
     .write(callback);
 };
 
-KVProto.batchWithLog = function(items, callback) {
-  const batch = this.batch();
+const batchWithLog = function(db, items, callback) {
+  const batch = db.batch();
   for (let i = 0; i < items.length; i++) {
     const { type, key, value } = items[i];
     const method = type === 'patch' ? 'put' : type;
@@ -175,8 +175,6 @@ KVProto.batchWithLog = function(items, callback) {
   }
   return batch.write(callback);
 };
-
-// TODO: add batchWithLog support
 
 /*
   NOTE: the initialization is done asynchronously, but in order to do proper
@@ -215,3 +213,6 @@ const createFactory = (rootDir) => {
 
 module.exports = createFactory;
 module.exports.dbsOpened = dbsOpened;
+module.exports.putWithLog = putWithLog;
+module.exports.delWithLog = delWithLog;
+module.exports.batchWithLog = batchWithLog;

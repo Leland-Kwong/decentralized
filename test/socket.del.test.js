@@ -1,6 +1,6 @@
 import dbPut from '../src/server/modules/db-put';
 import dbDel from '../src/server/modules/db-del';
-import Stream from '../src/server/utils/stream';
+import Stream from '../src/server/key-value-store/utils/stream';
 import getDbClient from '../src/server/modules/get-db';
 
 describe('socket.del', () => {
