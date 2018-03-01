@@ -10,7 +10,6 @@
 // TODO: add support for batch writes. This way when syncing happens, change events will be throttled. #performance #leveldb.batch
 const getDbClient = require('./modules/get-db');
 const Debug = require('debug');
-const dbNsEvent = require('./modules/db-ns-event');
 const debug = {
   checkToken: Debug('evds.socket.checkToken'),
   patch: Debug('evds.db.patch'),
@@ -44,23 +43,8 @@ const handleClientConnection = (dbAccessControl) => (client) => {
 
   client.on('get', require('./modules/db-get'));
 
-  const dbDelete = async ({ bucket, key, storeName = 'client' }, fn) => {
-    const db = await getDbClient(storeName);
-    const deleteEntireBucket = typeof key === 'undefined';
-    try {
-      // TODO: 'delete range of keys' #mvp
-      if (deleteEntireBucket) {
-        // await db.drop();
-      } else {
-        await db.delWithLog({ bucket, key });
-      }
-      fn({});
-    } catch(err) {
-      require('debug')('db.delete')(err);
-      fn({ error: err });
-    }
-  };
-  client.on('delete', dbDelete);
+  const dbDel = require('./modules/db-del');
+  client.on('delete', dbDel);
 
   client.on('disconnect', () => {
     try {

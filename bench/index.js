@@ -1,6 +1,5 @@
 const getDb = require('../src/server/modules/get-db');
 const Perf = require('perf-profile');
-const chance = require('chance')();
 const debug = require('debug');
 const log = (ns, ...rest) => debug(`bench.${ns}`)(...rest);
 

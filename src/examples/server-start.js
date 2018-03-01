@@ -4,7 +4,9 @@ const {
   socketServerAdminApiKey: serverAuthTokenApiKey,
   socketClientDevAuthToken
 } = require('../server/config');
-const { AccessToken } = require('../server/login');
+const Token = require('../server/login');
+const tokenApis = Token({ storeName: 'client' });
+const { AccessToken } = tokenApis;
 
 const app = new App();
 
@@ -40,7 +42,7 @@ const sessionCheck = async (client, next) => {
   const tokenId = getTokenFromSocket(client);
 
   const authBypass = tokenId === serverAuthTokenApiKey
-    // || tokenId === socketClientDevAuthToken;
+    || tokenId === socketClientDevAuthToken;
   if (authBypass) {
     return next();
   }

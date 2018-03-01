@@ -1,13 +1,16 @@
 /* global test */
-import {
+import Token from '../src/server/login/token';
+import ms from 'ms';
+
+const tokenApis = Token({ storeName: 'token.test' });
+const {
   sessionsDb,
   create,
   getByTokenId,
   destroy,
   verify,
   refresh
-} from '../src/server/login/token';
-import ms from 'ms';
+} = tokenApis;
 
 const userId = 1234;
 const createToken = (options = {}) => {

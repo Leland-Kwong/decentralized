@@ -3,7 +3,7 @@ import getDbClient from '../src/server/modules/get-db';
 import dbNsEvent from '../src/server/modules/db-ns-event';
 
 test('socket.put', async () => {
-  const storeName = 'client';
+  const storeName = 'socket.put.test';
   const db = await getDbClient(storeName);
   const value = { foo: 'bar' };
   const bucket = 'bucket';

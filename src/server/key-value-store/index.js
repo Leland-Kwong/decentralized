@@ -129,7 +129,6 @@ const getOptions = { fillCache: false };
 KVProto.get = function getWithGlobalCache(key) {
   const path = this.cacheKey(key);
   if (this.cache) {
-    console.log(path);
     const fromCache = dbGlobalCache.get(path);
     if (fromCache) {
       return fromCache.value;
@@ -162,6 +161,19 @@ KVProto.delWithLog = function(putKey, callback) {
     .del(putKey)
     .put(entry.key, entry.value)
     .write(callback);
+};
+
+KVProto.batchWithLog = function(items, callback) {
+  const batch = this.batch();
+  for (let i = 0; i < items.length; i++) {
+    const { type, key, value } = items[i];
+    const method = type === 'patch' ? 'put' : type;
+    batch[method](key, value);
+    const logValue = value || { actionType: 'del' };
+    const entry = LogEntry(key, logValue);
+    batch[method](entry.key, entry.value);
+  }
+  return batch.write(callback);
 };
 
 // TODO: add batchWithLog support

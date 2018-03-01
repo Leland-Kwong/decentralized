@@ -1,6 +1,6 @@
 const getDbClient = require('../src/server/modules/get-db');
 const { dbsOpened } = require('../src/server/key-value-store');
-const Stream = require('./utils/stream');
+const Stream = require('../src/server/utils/stream');
 
 afterAll(async () => {
   // drop dbs
@@ -62,16 +62,13 @@ describe('key value store', () => {
     await db.putWithLog(putKey, value);
     await db.delWithLog(putKey);
 
-    const logResults = [];
+    const onData = jest.fn();
     const bucketOplog = '_opLog';
     await Stream(
       db,
-      {
-        gte: { bucket: bucketOplog, key: '' },
-        lte: { bucket: bucketOplog, key: '~' }
-      },
-      (data) => logResults.push(data)
+      { bucket: bucketOplog },
+      onData
     );
-    expect(logResults.length).toBe(2);
+    expect(onData.mock.calls.length).toBe(2);
   });
 });
