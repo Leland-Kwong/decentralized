@@ -1,6 +1,14 @@
 {
   "plugins": [
     "transform-class-properties",
-    "transform-react-jsx"
+    "transform-react-jsx",
+    "transform-object-rest-spread"
   ],
+  "env": {
+    "test": {
+      "presets": [
+        ["env", { "modules": "commonjs" }],
+      ]
+    }
+  }
 }
