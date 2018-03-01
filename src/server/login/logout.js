@@ -1,5 +1,7 @@
-const { destroy } = require('./token');
+const Token = require('./token');
 const cors = require('cors');
+
+const { destroy } = Token({ storeName: 'client' });
 
 module.exports = (app) => {
   const corsOptions = cors({ methods: ['POST'] });

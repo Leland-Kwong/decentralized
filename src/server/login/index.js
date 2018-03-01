@@ -3,10 +3,12 @@
 const { secret } = require('../config');
 const crypto = require('crypto');
 const cors = require('cors');
-const AccessToken = require('./token');
+const Token = require('./token');
 const ms = require('ms');
 const { expiresIn, expirationTimeUnix } = require('./token-expiration');
 require('dotenv').config();
+
+const AccessToken = Token({ storeName: 'client' });
 
 module.exports = {};
 

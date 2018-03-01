@@ -1,4 +1,5 @@
 const queryData = require('../../isomorphic/query-data');
+const Stream = require('../key-value-store/utils/stream');
 const getDbClient = require('./get-db');
 const Debug = require('debug');
 const dbNsEvent = require('./db-ns-event');
@@ -31,23 +32,22 @@ const dbStreamHandler = (keys, values, query, cb) => {
 
 const doneFrame = { done: 1 };
 module.exports = function createSubscribeFn(client, subscriptions) {
-  return async function dbSubscribe({
-    eventId,
-    bucket,
-    key = '',
-    limit = -1,
-    gt,
-    lt,
-    gte,
-    lte,
-    reverse = false,
-    keys = true,
-    values = true,
-    initialValue = true,
-    once = false,
-    query,
-    storeName = 'client'
-  }, onAcknowledge) {
+  return async function dbSubscribe(params, onAcknowledge) {
+    const {
+      eventId,
+      bucket,
+      key = '',
+      gt,
+      lt,
+      gte,
+      lte,
+      keys = true,
+      values = true,
+      initialValue = true,
+      once = false,
+      query,
+      storeName = 'client'
+    } = params;
     const watchEntireBucket = key === '';
     let db;
 
@@ -69,29 +69,7 @@ module.exports = function createSubscribeFn(client, subscriptions) {
         client.emit(eventId, data);
       };
 
-      if (typeof gt !== 'undefined') {
-        gt = { bucket, key: gt };
-      }
-      else if (typeof gte !== 'undefined') {
-        gte = { bucket, key: gte };
-      }
-      else {
-        gte = { bucket, key: '' };
-      }
-
-      if (typeof lt !== 'undefined') {
-        lt = { bucket, key: lt + '~' };
-      }
-      else if (typeof lte !== 'undefined') {
-        lte = { bucket, key: lte + '~' };
-      }
-      else {
-        lte = { bucket, key: '~' };
-      }
-
-      const options = { limit, reverse, keys, values, gt, lt, gte, lte };
-
-      const onData = dbStreamHandler(options.keys, options.values, query, onDataCallback);
+      const onData = dbStreamHandler(keys, values, query, onDataCallback);
       const bucketStream = (actionType) => (changeKey, newValue) => {
         if (
           'undefined' !== typeof changeKey
@@ -104,10 +82,9 @@ module.exports = function createSubscribeFn(client, subscriptions) {
           client.emit(eventId, frame);
         }
 
-        const stream = db.createReadStream(options);
-        stream.on('data', onData);
-        stream.on('error', onStreamError);
-        stream.on('end', onStreamEnd);
+        Stream(db, params, onData)
+          .then(onStreamEnd)
+          .catch(onStreamError);
       };
 
       if (initialValue) {

@@ -4,9 +4,8 @@ const {
   socketServerAdminApiKey: serverAuthTokenApiKey,
   socketClientDevAuthToken
 } = require('../server/config');
-const Token = require('../server/login');
-const tokenApis = Token({ storeName: 'client' });
-const { AccessToken } = tokenApis;
+const Token = require('../server/login/token');
+const AccessToken = Token({ storeName: 'client' });
 
 const app = new App();
 

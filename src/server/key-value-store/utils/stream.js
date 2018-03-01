@@ -1,30 +1,37 @@
 module.exports = async function Stream(db, options, onData) {
-  const { gt, gte, lt, lte, bucket } = (onData ? options : onData) || {};
+  let { gt, gte, lt, lte } = (onData ? options : onData) || {};
+  const {
+    bucket, reverse = false, keys = true, values = true, limit = -1
+  } = options;
+
   if (typeof gt !== 'undefined') {
-    options.gt = { bucket, key: gt };
+    gt = { bucket, key: gt };
   }
   else if (typeof gte !== 'undefined') {
-    options.gte = { bucket, key: gte };
+    gte = { bucket, key: gte };
   }
   else {
-    options.gte = { bucket, key: '' };
+    gte = { bucket, key: '' };
   }
 
+  // the `~` character has a high char code, so its good for range filtering
   if (typeof lt !== 'undefined') {
-    options.lt = { bucket, key: lt + '~' };
+    lt = { bucket, key: lt + '~' };
   }
   else if (typeof lte !== 'undefined') {
-    options.lte = { bucket, key: lte + '~' };
+    lte = { bucket, key: lte + '~' };
   }
   else {
-    options.lte = { bucket, key: '~' };
+    lte = { bucket, key: '~' };
   }
 
-  const stream = db.createReadStream(options);
+  const newOptions = { bucket, gt, gte, lt, lte, reverse, keys, values, limit };
   const _onData = onData || options;
+  const stream = db.createReadStream(newOptions);
   return new Promise((resolve, reject) => {
-    stream.on('data', _onData);
+    stream.on('data', (data) => _onData(data, stream));
     stream.on('error', reject);
     stream.on('end', resolve);
+    stream.on('close', resolve);
   });
 };

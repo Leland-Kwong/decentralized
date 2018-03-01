@@ -33,15 +33,18 @@ class App {
     app.use(bodyParser.json({ limit: '10MB' }));
     const server = require('http').createServer(app);
     // setup express server
-    require('./rest')(app);
+    require('./routes')(app);
     // setup socket server
     require('./socket')(
       server,
       this.modules,
       this.dbAccessControlFn
     );
-    server.listen(port);
 
+    server.listen(port, function(err) {
+      if (err) console.error(err);
+      app.emit('connect');
+    });
     return app;
   }
 }

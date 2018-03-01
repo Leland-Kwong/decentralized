@@ -6,7 +6,7 @@ const getDbClient = require('../modules/get-db');
 const { putWithLog, delWithLog } = require('../key-value-store');
 
 function Token(params) {
-  const { storeName = 'client' } = params;
+  const { storeName } = params;
   const sessionsDb = getDbClient(storeName);
 
   const bucket = '_sessions';

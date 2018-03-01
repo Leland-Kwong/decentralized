@@ -1,5 +1,6 @@
 const debug = require('debug')('auth.check');
 const Token = require('./login/token');
+const { verify, getByTokenId } = Token({ storeName: 'client' });
 
 const unauthorizeRequest = (
   res,
@@ -34,8 +35,8 @@ const authCheck = async (req, res, next) => {
   }
   try {
     // verify
-    await Token.verify(requestToken);
-    const fullToken = await Token.getByTokenId(requestToken);
+    await verify(requestToken);
+    const fullToken = await getByTokenId(requestToken);
     req.user = {
       sub: fullToken.userId
     };

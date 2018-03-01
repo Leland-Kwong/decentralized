@@ -29,6 +29,17 @@ test('utils.stream', async () => {
     { values: false, bucket: bucket1, gte: 'key2', lte: 'key2' },
     onDataOnlyKeys
   );
-  expect(onDataOnlyKeys.mock.calls[0])
-    .toEqual([{ bucket: bucket1, key: 'key2' }]);
+  expect(onDataOnlyKeys.mock.calls[0][0])
+    .toEqual({ bucket: bucket1, key: 'key2' });
+
+  const earlyEnd = jest.fn();
+  await Stream(
+    db,
+    { values: false, bucket: bucket1 },
+    (data, stream) => {
+      stream.destroy();
+      earlyEnd();
+    }
+  );
+  expect(earlyEnd.mock.calls.length).toBe(1);
 });

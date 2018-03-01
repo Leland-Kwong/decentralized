@@ -51,6 +51,11 @@ function connect() {
       transports
     });
 
+    const removeFromCache = () => socketsByUrl.delete(uri);
+    const cleanup = () => {
+      removeFromCache();
+    };
+    socket.once('disconnect', cleanup);
     socketsByUrl.set(uri, socket);
 
     if (!isServer) {

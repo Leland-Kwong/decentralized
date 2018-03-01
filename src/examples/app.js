@@ -102,10 +102,6 @@ class LoginForm extends Component {
 }
 
 function tail(db) {
-  db.bucket('leland.chat')
-    .key('message')
-    .get()
-    .then(res => console.log('[GET]', res));
   db.bucket('_opLog')
     .inspect({ limit: 1 }, res => {
       const { key, value } = res;
@@ -118,10 +114,6 @@ function tail(db) {
   db.bucket('_sessions')
     .subscribe(res => {
       console.log('[SESSIONS]', res);
-    });
-  db.bucket('leland.chat')
-    .inspect(res => {
-      console.log('[LELAND.CHAT]', res);
     });
 }
 
@@ -139,6 +131,7 @@ function startApp() {
     componentDidMount() {
       const uri = serverApiBaseRoute;
       const { token } = this.props;
+      console.log(token);
       sockClient = new Socket({
         token,
         uri,
@@ -234,17 +227,10 @@ function startApp() {
           console.log('SUBSCRIBE', value.message);
         });
 
-      sockClient
-        .bucket('leland.chat')
-        .key('json_message')
-        .subscribe({}, (data) => {
-          console.log('leland.chat.json_message', data);
-        });
-
       let items;
       sockClient.subscribe({
         bucket: 'leland.list',
-        limit: 3,
+        limit: 5,
         reverse: true
       }, (data) => {
         items = items || {};
@@ -264,11 +250,6 @@ function startApp() {
     }
 
     setMessageUpdateServer = debounce(function update(value) {
-      sockClient
-        .bucket('leland.chat')
-        .key('json_message')
-        .put({ value: { value } });
-
       sockClient.patch({
         bucket: 'leland.chat',
         key: 'message',
@@ -277,9 +258,6 @@ function startApp() {
           { op: 'add', path: '/nested', value: {} },
           { op: 'add', path: '/nested/value', value },
           { op: 'add', path: '/foo', value: { list: ['bar', 'none', 'ok'] } },
-          // { op: 'add', path: '/foo/list/3', value: 'blah' },
-          // { op: 'move', from: '/foo/list/1', path: '/foo/list/0' }
-          // { op: 'replace', path: '/foo/list', value: ['bar', 'none', 'ok'] },
         ]
       }).catch(err => {
         console.error(err);
@@ -309,17 +287,40 @@ function startApp() {
         return;
       }
       const key = Date.now().toString();
+      const doc = {
+        text: value,
+        done: false
+      };
       const items = {
         ...this.state.items,
-        [key]: value
+        [key]: doc
       };
-      this.setState({ message: '' });
-      this.setState({ items });
+      this.setState({
+        message: '',
+        items
+      });
       sockClient
         .bucket('leland.list')
         .key(key)
-        .put({ value })
+        .put({ value: doc })
         .catch(err => console.error(err));
+    }
+
+    setDone = (key, done) => {
+      const patch = [
+        { op: 'replace', path: '/done', value: done }
+      ];
+      sockClient
+        .bucket('leland.list')
+        .key(key)
+        .patch({ ops: patch });
+      this.setState(({ items }) => {
+        const itemCopy = { ...this.state.items[key] };
+        itemCopy.done = done;
+        return {
+          items: { ...items, [key]: itemCopy }
+        };
+      });
     }
 
     removeItem = (key) => {
@@ -332,14 +333,15 @@ function startApp() {
         .then(() => this.setState({ items }));
     }
 
-    updateItem = (key, value) => {
+    updateItemText = (key, value) => {
       const { items } = this.state;
-      items[key] = value;
+      const item = items[key];
+      item.text = value;
       this.setState({ items });
-      this.updateItemServer(key, value);
+      this.updateItemTextServer(key, item);
     }
 
-    updateItemServer = debounce((key, value) => {
+    updateItemTextServer = debounce((key, value) => {
       return sockClient.put({
         bucket: 'leland.list',
         key,
@@ -387,7 +389,7 @@ function startApp() {
             {/* List - testing iteration of a bucket */}
             <ul>
               {Object.keys(this.state.items).sort().map((key) => {
-                const v = this.state.items[key];
+                const item = this.state.items[key];
                 return (
                   <li
                     key={key}
@@ -396,9 +398,19 @@ function startApp() {
                     <div>
                       <Input
                         type='textarea'
-                        onChange={e => this.updateItem(key, e.target.value)}
-                        value={v}
+                        onChange={e => this.updateItemText(key, e.target.value)}
+                        value={item.text}
                       />
+                      <div>
+                        <label>
+                          <input
+                            type='checkbox'
+                            onChange={() => this.setDone(key, !item.done)}
+                            checked={item.done}
+                          />
+                          done
+                        </label>
+                      </div>
                     </div>
                     <div>key: {key}</div>
                     <button
@@ -435,9 +447,10 @@ function startApp() {
       this.setState({
         loggedIn: true,
         token
+      }, () => {
+        const { expiresAt } = session.get();
+        auth.scheduleTokenRefresh({ expiresAt }, this.updateSessionInfo);
       });
-      const { expiresAt } = session.get();
-      auth.scheduleTokenRefresh({ expiresAt }, this.updateSessionInfo);
     }
 
     handleLogout = () => {

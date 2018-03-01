@@ -3,18 +3,12 @@ const KV = require('../src/server/key-value-store');
 const Perf = require('perf-profile');
 const debug = require('debug');
 const log = (ns, ...rest) => debug(`bench.${ns}`)(...rest);
-
-async function Stream(db, options, onData) {
-  const stream = db.createReadStream(options);
-  const _onData = onData || options;
-  return new Promise((resolve, reject) => {
-    stream.on('data', _onData);
-    stream.on('error', reject);
-    stream.on('end', resolve);
-  });
-}
+const Stream = require('../src/server/key-value-store/utils/stream');
 
 const itemCount = 10000;
+const lorem = 'Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.';
+const bucket = `figaro_I_am_a_big_key_${lorem.replace(/[\s,]/g, '_')}`;
+
 function generateItems() {
   Perf('generate items');
   // const list = new Array(1).fill(0).map(() => chance.paragraph());
@@ -23,7 +17,7 @@ function generateItems() {
       type: 'json',
       actionType: 'put',
       key: {
-        bucket: 'figaro',
+        bucket,
         key: 'key-' + i,
       },
       value: {
@@ -32,14 +26,13 @@ function generateItems() {
           list: new Array(50).fill(0).map(() => Math.random())
         }
       },
-      bucket: 'bench.db'
     };
   });
 
+  Perf('json.stringify');
   console.log(
     JSON.stringify(items[0].value).length
   );
-
   // log('', Perf('generate items'));
   return items;
 }
@@ -53,7 +46,10 @@ async function bench(insertData) {
     // const batch = db.batch();
     await new Promise((resolve) => {
       let count = 0;
-      function onPut() {
+      function onPut(err) {
+        if (err) {
+          console.log(err);
+        }
         count++;
         if (count === items.length) {
           resolve();
@@ -84,17 +80,20 @@ async function bench(insertData) {
 async function run() {
   const { db } = await bench(true);
   try {
-    await db.drop();
-    // Perf('read stream');
-    // let count = 0;
-    // await Stream(db, { values: false, limit: itemCount, reverse: true }, () => {
-    //   count++;
-    // });
-    // const perf = Perf('read stream');
-    // console.log(
-    //   perf,
-    //   count
-    // );
+    Perf('read stream');
+    let count = 0;
+    const streamOptions = { bucket, values: false, limit: itemCount, reverse: true };
+    await Stream(db, streamOptions, (data, stream) => {
+      if (count >= 1) {
+        stream.destroy();
+      }
+      count++;
+    });
+    const perf = Perf('read stream');
+    console.log(
+      perf,
+      count
+    );
 
     Perf.resetAll();
   } catch(err) {
@@ -106,20 +105,27 @@ async function readLog() {
   const db = await getDb('client');
 
   Perf('read opLog');
-  const results = [];
-  await Stream(
-    db,
-    {
-      gte: { bucket: '_opLog', key: '' },
-      lte: { bucket: '_opLog', key: '~' },
-      values: false,
-      limit: 10000,
-      reverse: true
-    },
-    (data) => results.push(data)
-  );
+  let count = 0;
+  // const results = [];
+  try {
+    await Stream(
+      db,
+      {
+        bucket: '_opLog',
+        values: false,
+        // limit: 10000,
+        // reverse: true
+      },
+      () => {
+        count++;
+        // results.push(data);
+      }
+    );
+  } catch(err) {
+    console.log(err);
+  }
   console.log(
-    results.length,
+    count,
     // results.map(v => v.key)
     Perf('read opLog')
   );
@@ -151,11 +157,10 @@ let count = 0;
 
 async function runBench(runCount) {
   await run();
+  await readLog();
   count++;
   if (count < runCount) {
     runBench(runCount);
-  } else {
-    readLog();
   }
 }
-runBench(10);
+runBench(5);

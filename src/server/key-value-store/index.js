@@ -51,7 +51,7 @@ function setupLogging(db) {
 const dbBaseConfig = {
   // disable cache since we're using a single
   // globally shared cache. (file: global-cache.js)
-  cacheSize: require('bytes')(0),
+  cacheSize: require('bytes')('200MB'),
 };
 
 // NOTE: Base class for all databases. Has some built in defaults to make it a bit easier to use.

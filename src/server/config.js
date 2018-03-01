@@ -21,7 +21,7 @@ const secret = process.env.NODE_ENV === 'test'
   ? 'secret'
   : process.env.SUPER_SECRET;
 module.exports = {
-  dbCacheSize: bytes('600MB'),
+  dbCacheSize: bytes('550MB'),
   dbBasePath: dbRoot[process.env.NODE_ENV],
   secret: crypto
     .createHash('md5')

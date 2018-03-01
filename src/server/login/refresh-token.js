@@ -1,6 +1,7 @@
 // TODO: consider storing inactive tokens in database. The issue here is we're refreshing tokens often, but previously unexpired tokens still continue to work. #mvp
 const cors = require('cors');
-const AccessToken = require('./token');
+const Token = require('./token');
+const { refresh } = Token({ storeName: 'client' });
 const { expiresIn, expirationTimeUnix } = require('./token-expiration');
 const authCheck = require('../auth-check');
 
@@ -11,7 +12,7 @@ module.exports = (app) => {
     const { decodedToken } = req;
     const expiresAt = expirationTimeUnix(expiresIn);
     try {
-      const newToken = await AccessToken.refresh(
+      const newToken = await refresh(
         decodedToken.tokenId,
         expiresAt
       );

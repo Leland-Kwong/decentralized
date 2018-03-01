@@ -16,7 +16,7 @@
     "start:dev.server": "DEBUG=evds.* NODE_ENV=development nodemon src/examples/server-start.js",
     "test": "NODE_ENV=test jest",
     "deploy": "now --dotenv",
-    "bench.db": "DEBUG=bench.* NODE_ENV=bench node bench/index.js",
+    "bench.db": "DEBUG=bench.* NODE_ENV=bench node bench/db.js",
     "bench.mem-usage": "DEBUG=bench.* NODE_ENV=bench node bench/mem-usage.js"
   },
   "author": "",
