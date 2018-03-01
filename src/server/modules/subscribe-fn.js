@@ -9,27 +9,6 @@ const debug = {
   subscribeError: Debug('evds.subscribeError')
 };
 
-const handleDbResponse = (query, value) => {
-  return queryData(query, value);
-};
-
-const dbStreamHandler = (keys, values, query, cb) => {
-  if (keys && values) {
-    return (data) => {
-      const value = handleDbResponse(query, data.value.parsed);
-      cb({ key: data.key.key, value });
-    };
-  }
-  if (!values) {
-    return (key) => cb({ key: key.key });
-  }
-  if (!keys) {
-    return (data) => {
-      cb({ value: handleDbResponse(query, data.parsed) });
-    };
-  }
-};
-
 const doneFrame = { done: 1 };
 module.exports = function createSubscribeFn(client, subscriptions) {
   return async function dbSubscribe(params, onAcknowledge) {
@@ -41,8 +20,6 @@ module.exports = function createSubscribeFn(client, subscriptions) {
       lt,
       gte,
       lte,
-      keys = true,
-      values = true,
       initialValue = true,
       once = false,
       query,
@@ -65,11 +42,16 @@ module.exports = function createSubscribeFn(client, subscriptions) {
         client.emit(eventId, { error: error.message });
       };
       const onStreamEnd = () => client.emit(eventId, doneFrame);
-      const onDataCallback = (data) => {
-        client.emit(eventId, data);
+      const onData = (data) => {
+        const response = {};
+        if (data.key) {
+          response.key = data.key.key;
+        }
+        if (data.value) {
+          response.value = queryData(query, data.value.parsed);
+        }
+        client.emit(eventId, response);
       };
-
-      const onData = dbStreamHandler(keys, values, query, onDataCallback);
       const bucketStream = (actionType) => (changeKey, newValue) => {
         if (
           'undefined' !== typeof changeKey
@@ -77,7 +59,7 @@ module.exports = function createSubscribeFn(client, subscriptions) {
         ) {
           const frame = { key: changeKey, action: actionType };
           if (actionType !== 'del') {
-            frame.value = handleDbResponse(query, newValue);
+            frame.value = queryData(query, newValue);
           }
           client.emit(eventId, frame);
         }
@@ -125,7 +107,7 @@ module.exports = function createSubscribeFn(client, subscriptions) {
             const currentValue = await db.get(nsKey);
             client.emit(
               eventId,
-              { value: handleDbResponse(query, currentValue) }
+              { value: queryData(query, currentValue) }
             );
           } catch(err) {
             debug.streamError(err);

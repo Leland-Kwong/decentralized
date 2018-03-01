@@ -29,7 +29,19 @@ module.exports = async function Stream(db, options, onData) {
   const _onData = onData || options;
   const stream = db.createReadStream(newOptions);
   return new Promise((resolve, reject) => {
-    stream.on('data', (data) => _onData(data, stream));
+    stream.on('data', (data) => {
+      let response;
+      // NOTE: if keys or values is omitted, the data parameter isn't an object
+      // so this is a workaround to make it always respond with an object
+      if (keys && values) {
+        response = data;
+      } else if (!values) {
+        response = { key: data };
+      } else {
+        response = { value: data };
+      }
+      _onData(response, stream);
+    });
     stream.on('error', reject);
     stream.on('end', resolve);
     stream.on('close', resolve);

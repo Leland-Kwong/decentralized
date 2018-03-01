@@ -116,8 +116,11 @@ async function readLog() {
         // limit: 10000,
         // reverse: true
       },
-      () => {
+      (_, stream) => {
         count++;
+        if (count >= 5000) {
+          stream.destroy();
+        }
         // results.push(data);
       }
     );
