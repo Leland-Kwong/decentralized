@@ -1,13 +1,9 @@
-// TODO: create method for dbNsEvent calls so we group them together and keep things dry.
 // TODO: user permissions #mvp
 // TODO: add syncing support. Syncing works by syncing the db files #mvp
 // TODO: add request throttling
 // TODO: add support for built-in data types so we can set a default value if it doesn't already exist. For this to work, the developer will also have to pass in a `type` property for write operations. #enhancement
 // TODO: user management #enhancement
 // TODO: add file upload support #enhancement
-// TODO: add support for *key* filtering to `db.on('put')` when watching a keypath of {bucket}/{key}. Right now, each subscription function gets called whenever the bucket changes. #performance
-// TODO: add support for server-side functions #enhancement
-// TODO: add support for batch writes. This way when syncing happens, change events will be throttled. #performance #leveldb.batch
 const getDbClient = require('./modules/get-db');
 const { putWithLog } = require('./key-value-store');
 const Debug = require('debug');
