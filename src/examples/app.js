@@ -232,7 +232,6 @@ function startApp() {
         }, (data) => {
           const { value } = data;
           console.log('SUBSCRIBE', value.message);
-          this.setState({ message: value.message });
         });
 
       sockClient

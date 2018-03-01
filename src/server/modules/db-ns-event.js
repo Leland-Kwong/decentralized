@@ -1,2 +1,6 @@
-module.exports = (event, bucket, key) =>
-  `${event}.${bucket}/${key}`;
+module.exports = (event, bucket, key) => {
+  if (key) {
+    return `${event}.${bucket}/${key}`;
+  }
+  return `${event}.${bucket}`;
+};

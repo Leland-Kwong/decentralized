@@ -16,11 +16,11 @@ const dbStreamHandler = (keys, values, query, cb) => {
   if (keys && values) {
     return (data) => {
       const value = handleDbResponse(query, data.value.parsed);
-      cb({ key: data.key, value });
+      cb({ key: data.key.key, value });
     };
   }
   if (!values) {
-    return (key) => cb({ key });
+    return (key) => cb({ key: key.key });
   }
   if (!keys) {
     return (data) => {
@@ -45,13 +45,14 @@ module.exports = function createSubscribeFn(client, subscriptions) {
     values = true,
     initialValue = true,
     once = false,
-    query
+    query,
+    storeName = 'client'
   }, onAcknowledge) {
     const watchEntireBucket = key === '';
     let db;
 
     try {
-      db = await getDbClient(bucket);
+      db = await getDbClient(storeName);
     } catch(err) {
       return onAcknowledge({ error: err.message });
     }
@@ -67,7 +68,29 @@ module.exports = function createSubscribeFn(client, subscriptions) {
       const onDataCallback = (data) => {
         client.emit(eventId, data);
       };
+
+      if (typeof gt !== 'undefined') {
+        gt = { bucket, key: gt };
+      }
+      else if (typeof gte !== 'undefined') {
+        gte = { bucket, key: gte };
+      }
+      else {
+        gte = { bucket, key: '' };
+      }
+
+      if (typeof lt !== 'undefined') {
+        lt = { bucket, key: lt + '~' };
+      }
+      else if (typeof lte !== 'undefined') {
+        lte = { bucket, key: lte + '~' };
+      }
+      else {
+        lte = { bucket, key: '~' };
+      }
+
       const options = { limit, reverse, keys, values, gt, lt, gte, lte };
+
       const onData = dbStreamHandler(options.keys, options.values, query, onDataCallback);
       const bucketStream = (actionType) => (changeKey, newValue) => {
         if (
@@ -96,27 +119,39 @@ module.exports = function createSubscribeFn(client, subscriptions) {
       }
 
       const onPut = bucketStream('put');
-      db.on('put', onPut);
       const onDelete = bucketStream('del');
-      db.on('del', onDelete);
-      subscriptions.set(eventId, function cleanup() {
-        db.removeListener('put', onPut);
-        db.removeListener('del', onDelete);
-      });
+      // listen to all opLog changes
+      if (bucket === '_opLog') {
+        const putEvent = dbNsEvent('put', bucket);
+        db.on(putEvent, onPut);
+        subscriptions.set(eventId, function cleanup() {
+          db.removeListener(putEvent, onPut);
+        });
+      } else {
+        const putEvent = dbNsEvent('put', bucket);
+        db.on(putEvent, onPut);
+        const delEvent = dbNsEvent('del', bucket);
+        db.on(delEvent, onDelete);
+        subscriptions.set(eventId, function cleanup() {
+          db.removeListener(putEvent, onPut);
+          db.removeListener(delEvent, onDelete);
+        });
+      }
     }
     // watch bucket/key
     else {
       try {
         if (initialValue) {
           try {
+            const nsKey = { bucket, key };
             // emit initial value
-            const currentValue = await db.get(key);
+            const currentValue = await db.get(nsKey);
             client.emit(
               eventId,
               { value: handleDbResponse(query, currentValue) }
             );
           } catch(err) {
-            debug.streamError(err.message);
+            debug.streamError(err);
           }
         }
 

@@ -61,6 +61,6 @@ const accessControl = (event, args, client, next) => {
 
 app
   .dbAccessControl(accessControl)
-  .use(tick)
+  // .use(tick)
   .start()
   .on('connect', tick);

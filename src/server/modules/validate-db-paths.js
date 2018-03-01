@@ -19,15 +19,5 @@ module.exports = {
     }
     return true;
   },
-  validateKey: (key) => {
-    const keyType = typeof key;
-    if (keyType !== 'string') {
-      throw new TypeError('key', keyType, key);
-    }
-    if (!key.match(regex)) {
-      throw new RegexError('key', key);
-    }
-    return true;
-  },
   regex
 };

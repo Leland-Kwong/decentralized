@@ -14,26 +14,39 @@ async function Stream(db, options, onData) {
   });
 }
 
-Perf('generate items');
-const list = new Array(1).fill(0).map(() => chance.paragraph());
-const items = new Array(10000).fill(0).map((_, i) => {
-  return {
-    type: 'json',
-    actionType: 'put',
-    key: 'key-' + i,
-    value: {
-      data: {
-        list
-      }
-    },
-    bucket: 'bench.db'
-  };
-});
+const itemCount = 10000;
+function generateItems() {
+  Perf('generate items');
+  // const list = new Array(1).fill(0).map(() => chance.paragraph());
+  const items = new Array(itemCount).fill(0).map((_, i) => {
+    return {
+      type: 'json',
+      actionType: 'put',
+      key: {
+        bucket: 'figaro',
+        key: 'key-' + i,
+      },
+      value: {
+        data: {
+          // list
+          list: new Array(50).fill(0).map(() => Math.random())
+        }
+      },
+      bucket: 'bench.db'
+    };
+  });
 
-log('', Perf('generate items'));
+  console.log(
+    JSON.stringify(items[0].value).length
+  );
 
-async function setup(insertData) {
-  const db = await getDb('bench.db');
+  // log('', Perf('generate items'));
+  return items;
+}
+
+async function bench(insertData) {
+  const items = generateItems();
+  const db = await getDb('client');
 
   if (insertData) {
     Perf('batch insert');
@@ -46,27 +59,10 @@ async function setup(insertData) {
           resolve();
         }
       }
-      items.slice(0, 2500).forEach(async item => {
-        const db = await getDb('bench.db');
-        db.put(item.key, item, onPut);
-      });
-
-      items.slice(2500, 5000).forEach(async item => {
-        const db = await getDb('bench.db');
-        await getDb('bench.db2');
-        db.put(item.key, item, onPut);
-      });
-
-      items.slice(5000, 7500).forEach(async item => {
-        const db = await getDb('bench.db');
-        await getDb('bench.db3');
-        db.put(item.key, item, onPut);
-      });
-
-      items.slice(7500).forEach(async item => {
-        const db = await getDb('bench.db');
-        await getDb('bench.db4');
-        db.put(item.key, item, onPut);
+      const method = 'putWithLog';
+      items.forEach(async item => {
+        const db = await getDb('client');
+        db[method](item.key, item, onPut);
       });
 
       // const version = Date.now().toString(36);
@@ -82,62 +78,73 @@ async function setup(insertData) {
     log('', perf);
   }
 
-  function cleanup() {
-    return db.drop();
-  }
-
-  return { db, cleanup };
+  return { db };
 }
 
 async function run() {
+  const { db } = await bench(true);
   try {
-    const { db, cleanup } = await setup(true);
-    // warm it up
-    Perf('read stream');
-    let count = 0;
-    await Stream(db, { values: false }, () => {
-      count++;
-    });
-    const perf = Perf('read stream');
-    console.log(
-      perf,
-      count
-    );
-    await cleanup();
+    await db.drop();
+    // Perf('read stream');
+    // let count = 0;
+    // await Stream(db, { values: false, limit: itemCount, reverse: true }, () => {
+    //   count++;
+    // });
+    // const perf = Perf('read stream');
+    // console.log(
+    //   perf,
+    //   count
+    // );
+
     Perf.resetAll();
-    return perf;
   } catch(err) {
     console.error(err);
   }
 }
 
 async function readLog() {
-  const opLog = await getDb('_opLog');
+  const db = await getDb('client');
 
   Perf('read opLog');
   const results = [];
   await Stream(
-    opLog,
-    { limit: 10000, reverse: true },
+    db,
+    {
+      gte: { bucket: '_opLog', key: '' },
+      lte: { bucket: '_opLog', key: '~' },
+      values: false,
+      limit: 10000,
+      reverse: true
+    },
     (data) => results.push(data)
   );
-  Perf('js array filter');
-  const filterFn = (v) => {
-    return parseInt(v.value.parsed.k.slice(4)) > 4500;
-  };
-  const filtered = results.filter(filterFn);
-  log('', Perf('js array filter').end());
   console.log(
-    Perf('read opLog').end(),
     results.length,
-    filtered.length,
-    // JSON.stringify(results[0]).length,
-    // results[0]
+    // results.map(v => v.key)
+    Perf('read opLog')
   );
 
-  Perf('delete opLog');
-  await opLog.drop();
-  log('', Perf('delete opLog'));
+  // Perf('js array filter');
+  // const filterFn = (v) => {
+  //   return parseInt(v.value.parsed.k.slice(4)) > 4500;
+  // };
+  // const filtered = results.filter(filterFn);
+  // log('', Perf('js array filter').end());
+  // console.log(
+  //   Perf('read opLog').end(),
+  //   results.length,
+  //   filtered.length,
+  //   // JSON.stringify(results[0]).length,
+  //   // results[0]
+  // );
+
+  Perf('delete db');
+  try {
+    await db.drop();
+  } catch(err) {
+    console.error(err);
+  }
+  log('', Perf('delete db'));
 }
 
 let count = 0;

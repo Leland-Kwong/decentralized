@@ -3,17 +3,19 @@
 const crypto = require('crypto');
 const ms = require('ms');
 const getDbClient = require('../modules/get-db');
-const sessionsDb = getDbClient('_sessions');
+const storeName = 'client';
+const sessionsDb = getDbClient(storeName);
 
+const bucket = '_sessions';
 // grabs from cache first, then db if needed
 const db = {
   async add(token) {
     const { tokenId } = token;
-    const putValue = { type: 'json', value: token };
+    const putValue = { type: 'json', value: token, actionType: 'put' };
 
     try {
       await (await sessionsDb)
-        .put(tokenId, putValue);
+        .putWithLog({ bucket, key: tokenId }, putValue);
     } catch(err) {
       console.log(err);
       throw 'error adding token to db';
@@ -23,7 +25,7 @@ const db = {
   async get(tokenId) {
     try {
       const db = await sessionsDb;
-      const fromDb = await db.get(tokenId);
+      const fromDb = await db.get({ bucket, key: tokenId });
       return fromDb;
     } catch(err) {
       console.error(err);
@@ -31,7 +33,7 @@ const db = {
   },
   async delete(tokenId) {
     try {
-      (await sessionsDb).del(tokenId);
+      (await sessionsDb).delWithLog({ bucket, key: tokenId });
       return { ok: 1 };
     } catch (err) {
       console.log(err);

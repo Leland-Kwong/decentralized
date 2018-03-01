@@ -1,3 +1,4 @@
+// TODO: create method for dbNsEvent calls so we group them together and keep things dry.
 // TODO: user permissions #mvp
 // TODO: add syncing support. Syncing works by syncing the db files #mvp
 // TODO: add request throttling
@@ -43,16 +44,15 @@ const handleClientConnection = (dbAccessControl) => (client) => {
 
   client.on('get', require('./modules/db-get'));
 
-  const dbDelete = async ({ bucket, key }, fn) => {
-    const db = await getDbClient(bucket);
+  const dbDelete = async ({ bucket, key, storeName = 'client' }, fn) => {
+    const db = await getDbClient(storeName);
     const deleteEntireBucket = typeof key === 'undefined';
     try {
+      // TODO: 'delete range of keys' #mvp
       if (deleteEntireBucket) {
-        await db.drop();
+        // await db.drop();
       } else {
-        await db.del(key);
-        const event = dbNsEvent('del', bucket, key);
-        db.emit(event, key);
+        await db.delWithLog({ bucket, key });
       }
       fn({});
     } catch(err) {
@@ -62,17 +62,22 @@ const handleClientConnection = (dbAccessControl) => (client) => {
   };
   client.on('delete', dbDelete);
 
-  client.on('disconnect', async () => {
-    // cleanup dbSubscriptions
-    [...dbSubscriptions].forEach(([, cleanup]) => {
-      cleanup();
-    });
-    dbSubscriptions.clear();
-    // cleanup socket client
-    const eventNames = client.eventNames();
-    eventNames.forEach(name => {
-      client.removeAllListeners(name);
-    });
+  client.on('disconnect', () => {
+    try {
+      // cleanup dbSubscriptions
+      [...dbSubscriptions].forEach(([, cleanup]) => {
+        cleanup();
+      });
+      dbSubscriptions.clear();
+      // cleanup socket client
+      const eventNames = client.eventNames();
+      eventNames.forEach(name => {
+        client.removeAllListeners(name);
+      });
+    }
+    catch(err) {
+      require('debug')('db.cleanup.error', err);
+    }
   });
 
   const dbPut = require('./modules/db-put');
@@ -81,10 +86,11 @@ const handleClientConnection = (dbAccessControl) => (client) => {
   const { applyReducer } = require('fast-json-patch');
   const defaultPatchValue = () => ({});
   const dbPatch = async (data, fn) => {
-    const { bucket, key, ops: patchObject } = data;
+    const { bucket, key, ops: patchObject, storeName = 'client' } = data;
     try {
-      const db = await getDbClient(bucket);
-      const curValue = await db.get(key) || defaultPatchValue();
+      const db = await getDbClient(storeName);
+      const nsKey = { bucket, key };
+      const curValue = await db.get(nsKey) || defaultPatchValue();
 
       const isPlainObject = curValue && typeof curValue === 'object';
       if (!isPlainObject) {
@@ -94,18 +100,14 @@ const handleClientConnection = (dbAccessControl) => (client) => {
         });
       }
 
-      const actionType = 'patch';
       const patchResult = patchObject.reduce(applyReducer, curValue);
       const putValue = {
         type: 'json',
         value: patchResult,
         patch: patchObject,
-        actionType,
-        bucket
+        actionType: 'patch',
       };
-      await db.put(key, putValue);
-      const event = dbNsEvent('put', bucket, key);
-      db.emit(event, key, putValue);
+      await db.putWithLog(nsKey, putValue);
       fn({});
     } catch(err) {
       debug.patch(err);

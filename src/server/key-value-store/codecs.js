@@ -19,17 +19,33 @@ const d = {
   VALUE: '\n\n'
 };
 
+function memoizeLast(fn) {
+  let lastInput;
+  let lastOutput;
+  return function(input, memoize = true) {
+    if (memoize && (lastInput === input)) {
+      return lastOutput;
+    }
+    lastInput = input;
+    lastOutput = fn(input);
+    return lastOutput;
+  };
+}
+
+const normalizedValueMem = memoizeLast((input) => {
+  if ('undefined' === typeof input) {
+    return '';
+  } else {
+    const isPlainObject = input && 'object' === typeof input;
+    return isPlainObject
+      ? JSON.stringify(input)
+      : input;
+  }
+});
+
 const encodeData = (input) => {
   const { value, type = (typeof value), meta = '' } = input;
-  let normalizedValue;
-  if ('undefined' === typeof value) {
-    normalizedValue = '';
-  } else {
-    const isPlainObject = value && 'object' === typeof value;
-    normalizedValue = isPlainObject
-      ? JSON.stringify(value)
-      : value;
-  }
+  const normalizedValue = normalizedValueMem(value);
   const metadata = meta ? `${d.HEADER}${meta}` : '';
   const out = `${type}${metadata}${d.VALUE}${normalizedValue}`;
   return out;
@@ -68,6 +84,8 @@ const parseGet = (data) => {
 };
 
 module.exports = {
+  normalizedValueMem,
+  delimiters: d,
   encodeData,
   decodeData: parseGet
 };
