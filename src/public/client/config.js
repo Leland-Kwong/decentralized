@@ -1,6 +1,6 @@
-const productionApiBaseRoute = `https://event-driven-storage-kfbcsfytsm.now.sh`;
+const productionApiBaseRoute = `https://todos.lelandkwong.com`;
 
-export const serverApiBaseRoute = localStorage.getItem('env') === 'staging'
+export const serverApiBaseRoute = localStorage.getItem('env') === 'production'
   ? productionApiBaseRoute
   : `http://${location.hostname}:3000`;
 

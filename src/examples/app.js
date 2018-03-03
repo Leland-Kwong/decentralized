@@ -11,7 +11,7 @@ import { getTimeMS } from '../isomorphic/lexicographic-id';
 import { HotKeys } from 'react-hotkeys';
 import { serverApiBaseRoute, setEnv } from '../public/client/config';
 
-setEnv('development');
+setEnv('production');
 
 const log = (ns, ...rest) =>
   console.log(`lucidbyte.client.${ns}`, ...rest);
@@ -467,13 +467,13 @@ function startApp() {
     }
 
     render() {
-      if (!this.state.loggedIn) {
-        return (
-          <section>
-            <LoginForm onAuthorized={this.handleLogin} />
-          </section>
-        );
-      }
+      // if (!this.state.loggedIn) {
+      //   return (
+      //     <section>
+      //       <LoginForm onAuthorized={this.handleLogin} />
+      //     </section>
+      //   );
+      // }
       return (
         <div>
           <Example

@@ -84,9 +84,12 @@ function Token(params) {
         if (hasExpired) {
           throw new TokenError('token expired');
         }
+        if (!token) {
+          throw new TokenError('invalid token');
+        }
         return token;
       } catch(err) {
-        throw new TokenError('invalid token');
+
       }
     },
     async refresh(tokenId, expiresAt = defaultExpiresAt()) {
