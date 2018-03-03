@@ -11,6 +11,7 @@ const { CronJob } = require('cron');
 const Now = require('performance-now');
 
 const app = new App();
+const isProduction = process.env.NODE_ENV === 'production';
 
 const connection = new SocketClient({
   uri: 'http://localhost:3000',
@@ -67,8 +68,10 @@ const getTokenFromSocket = (socket) =>
 const accessControl = async (event, args, client, next) => {
   const tokenId = getTokenFromSocket(client);
 
-  const authBypass = tokenId === serverAuthTokenApiKey
-    || tokenId === socketClientDevAuthToken;
+  const authBypass = !isProduction && (
+    tokenId === serverAuthTokenApiKey
+    || tokenId === socketClientDevAuthToken
+  );
   if (authBypass) {
     return next();
   }
