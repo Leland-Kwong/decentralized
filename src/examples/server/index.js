@@ -1,11 +1,13 @@
-const App = require('../server/index');
-const SocketClient = require('../isomorphic/socket-client');
+const App = require('../../server');
+const SocketClient = require('../../isomorphic/socket-client');
 const {
   socketServerAdminApiKey: serverAuthTokenApiKey,
   socketClientDevAuthToken
-} = require('../server/config');
-const Token = require('../server/login/token');
+} = require('../../server/config');
+const Token = require('../../server/login/token');
+const backup = require('./cloud-backup');
 const AccessToken = Token({ storeName: 'client' });
+const { CronJob } = require('cron');
 
 const app = new App();
 
@@ -17,8 +19,24 @@ const connection = new SocketClient({
 
 const tick = async () => {
   connection.socket
-    .on('connect', () => {
+    .on('connect', async () => {
       console.log('server socket connected!');
+
+      const getDbClient = require('../../server/modules/get-db');
+      const Stream = require('../../server/key-value-store/utils/stream');
+      const Perf = require('perf-profile');
+      const db = await getDbClient('client');
+      Perf('oplog count');
+      const options = {
+        bucket: '_opLog',
+        once: true,
+        values: false,
+        // limit: 1000
+      };
+      let logCount = 0;
+
+      await Stream(db, options, () => logCount++);
+      console.log(logCount, Perf('oplog count'));
     })
     .on('error', (err) => console.error(err));
 
@@ -65,8 +83,29 @@ const accessControl = async (event, args, client, next) => {
   }
 };
 
+const autoBackup = () => {
+  // 11:30pm everyday
+  const schedule = '00 30 23 * * 0-7';
+  const job = new CronJob({
+    cronTime: schedule,
+    onTick: function() {
+      backup()
+        .then(({ data, took }) => {
+          console.log('[AWS-S3 BACKUP SUCCESS]:', { data, took });
+        })
+        .catch(err => console.error('[AWS-S3 BACKUP ERROR]', err));
+    }, function () {
+      /* This function is executed when the job stops */
+    },
+    start: true, /* Start the job right now */
+    timeZone: 'America/Los_Angeles' /* Time zone of this job. */
+  });
+  job.start();
+};
+
 app
   .dbAccessControl(accessControl)
   .start();
 
 tick();
+autoBackup();

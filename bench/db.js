@@ -5,8 +5,8 @@ const debug = require('debug');
 const log = (ns, ...rest) => debug(`bench.${ns}`)(...rest);
 const Stream = require('../src/server/key-value-store/utils/stream');
 
-const itemCount = 10000;
-const lorem = 'Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.';
+const itemCount = 50000;
+const lorem = 'Lorem';
 const bucket = `figaro_I_am_a_big_key_${lorem.replace(/[\s,]/g, '_')}`;
 
 function generateItems() {
@@ -23,7 +23,7 @@ function generateItems() {
       value: {
         data: {
           // list
-          list: new Array(50).fill(0).map(() => Math.random())
+          list: new Array(20).fill(0).map(() => Math.random())
         }
       },
     };
@@ -118,7 +118,7 @@ async function readLog() {
       },
       (_, stream) => {
         count++;
-        if (count >= 5000) {
+        if (count >= 50000) {
           stream.destroy();
         }
         // results.push(data);
