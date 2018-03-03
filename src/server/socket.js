@@ -1,7 +1,6 @@
 // TODO: user permissions #mvp
 // TODO: add syncing support. Syncing works by syncing the db files #mvp
 // TODO: add request throttling
-// TODO: add support for built-in data types so we can set a default value if it doesn't already exist. For this to work, the developer will also have to pass in a `type` property for write operations. #enhancement
 // TODO: user management #enhancement
 // TODO: add file upload support #enhancement
 const getDbClient = require('./modules/get-db');

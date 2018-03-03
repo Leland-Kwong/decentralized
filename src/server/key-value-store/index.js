@@ -1,3 +1,5 @@
+// TODO: mutations do immediate writes to the oplog, and then we queue up actual data changes in memory until a minimum size threshold (4MB) at which point we'll flush the queue. This allows us to quickly do writes without having to immediately commit the data changes. #performance
+
 const path = require('path');
 const LogEntry = require('./log-entry');
 const delDir = require('del');
@@ -5,8 +7,6 @@ const LevelUp = require('levelup');
 const leveldown = require('leveldown');
 const encode = require('encoding-down');
 const dbNsEvent = require('../modules/db-ns-event');
-// const getMetadata = require('./metadata');
-// const { validateBucket } = require('../modules/validate-db-paths');
 const fs = require('fs-extra');
 const {
   dbGlobalCache,
