@@ -34,6 +34,7 @@ function connect() {
     token,
     transports = ['websocket'],
     uri,
+    storeName,
   } = this.config;
 
   if ('undefined' === typeof uri) {
@@ -45,7 +46,7 @@ function connect() {
   if (!socket) {
     const io = require('socket.io-client');
     socket = io(uri, {
-      query: { token },
+      query: { token, storeName },
       secure: true,
       // force websocket as default
       transports

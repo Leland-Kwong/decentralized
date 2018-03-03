@@ -1,5 +1,3 @@
-// TODO: add token blacklisting
-
 const crypto = require('crypto');
 const ms = require('ms');
 const getDbClient = require('../modules/get-db');
@@ -10,7 +8,6 @@ function Token(params) {
   const sessionsDb = getDbClient(storeName);
 
   const bucket = '_sessions';
-  // grabs from cache first, then db if needed
   const db = {
     async add(token) {
       const { tokenId } = token;
@@ -80,16 +77,17 @@ function Token(params) {
       return await db.delete(tokenId);
     },
     async verify(tokenId) {
-      const token = await db.get(tokenId);
-      const time = TimeMS();
-      const hasExpired = token && (token.expiresAt < time);
-      if (hasExpired) {
-        throw new TokenError('token expired');
-      }
-      if (!token) {
+      try {
+        const token = await db.get(tokenId);
+        const time = TimeMS();
+        const hasExpired = token && (token.expiresAt < time);
+        if (hasExpired) {
+          throw new TokenError('token expired');
+        }
+        return token;
+      } catch(err) {
         throw new TokenError('invalid token');
       }
-      return token;
     },
     async refresh(tokenId, expiresAt = defaultExpiresAt()) {
       try {

@@ -131,16 +131,19 @@ function startApp() {
     componentDidMount() {
       const uri = serverApiBaseRoute;
       const { token } = this.props;
+      const storeName = 'client';
       console.log(token);
       sockClient = new Socket({
         token,
         uri,
+        storeName,
         dev: true,
       });
 
       const client2 = new Socket({
         token,
         uri,
+        storeName,
         dev: true
       });
       tail(client2);

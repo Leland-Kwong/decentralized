@@ -10,13 +10,12 @@ test('socket.get', async () => {
   const key = 'key';
 
   // put an initial value to database
-  await dbPut({ bucket, key, value, storeName });
+  await dbPut(db)({ bucket, key, value, storeName });
 
   const fn = jest.fn();
-  await dbGet({
+  await dbGet(db)({
     bucket,
     key,
-    storeName
   }, fn);
   expect(fn.mock.calls.length).toBe(1);
 

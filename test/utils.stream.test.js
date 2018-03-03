@@ -30,7 +30,7 @@ test('utils.stream', async () => {
     onDataOnlyKeys
   );
   expect(onDataOnlyKeys.mock.calls[0][0])
-    .toEqual({ bucket: bucket1, key: 'key2' });
+    .toEqual({ key: { bucket: bucket1, key: 'key2' } });
 
   const earlyEnd = jest.fn();
   await Stream(

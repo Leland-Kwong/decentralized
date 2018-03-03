@@ -12,11 +12,6 @@ class App {
     this.modules = [];
   }
 
-  use(fn) {
-    this.modules.push(fn);
-    return this;
-  }
-
   // Permission function to control database access. Gets called for every
   // request to the database
   dbAccessControl(fn) {

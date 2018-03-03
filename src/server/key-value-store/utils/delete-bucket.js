@@ -10,7 +10,7 @@ const deleteBucket = async function(
   totalDeleteCount = 0
 ) {
   const keys = [];
-  const onData = key => keys.push({ key, type: 'del' });
+  const onData = ({ key }) => keys.push({ key, type: 'del' });
   try {
     const streamOptions = {
       bucket,

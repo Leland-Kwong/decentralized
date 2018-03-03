@@ -8,25 +8,24 @@ describe('socket.del', () => {
 
   test('delete key', async () => {
     const storeName = 'socket.del.test.delete-key';
-    const key = 'del.key';
-    await dbPut({ bucket, key, storeName, value: 'del' });
-    const fn = jest.fn();
-    await dbDel({ bucket, key, storeName }, fn);
-    expect(fn.mock.calls.length).toBe(1);
-
     const db = await getDbClient(storeName);
+    const key = 'del.key';
+    await dbPut(db)({ bucket, key, value: 'del' });
+    const fn = jest.fn();
+    await dbDel(db)({ bucket, key, storeName }, fn);
+    expect(fn.mock.calls.length).toBe(1);
     expect(await db.get({ bucket, key })).toBe(null);
   });
 
   test('delete bucket', async () => {
     const storeName = 'socket.del.test.delete-bucket';
-    await dbPut({ bucket, key: 'k1', storeName, value: 'del' });
-    await dbPut({ bucket, key: 'k2', storeName, value: 'del' });
+    const db = await getDbClient(storeName);
+    await dbPut(db)({ bucket, key: 'k1', storeName, value: 'del' });
+    await dbPut(db)({ bucket, key: 'k2', storeName, value: 'del' });
     const fn = jest.fn();
-    await dbDel({ bucket, storeName }, fn);
+    await dbDel(db)({ bucket, storeName }, fn);
     expect(fn.mock.calls.length).toBe(1);
 
-    const db = await getDbClient(storeName);
     const onData = jest.fn();
     await Stream(db, { bucket }, onData);
     expect(onData.mock.calls.length).toBe(0);

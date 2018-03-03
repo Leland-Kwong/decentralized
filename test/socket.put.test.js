@@ -15,11 +15,10 @@ test('socket.put', async () => {
   db.on(event, fn1);
 
   const fn2 = jest.fn();
-  await dbPut({
+  await dbPut(db)({
     bucket,
     key,
     value,
-    storeName
   }, fn2);
   expect(fn1.mock.calls.length).toBe(1);
   expect(fn2.mock.calls.length).toBe(1);

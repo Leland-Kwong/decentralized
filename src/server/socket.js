@@ -13,13 +13,13 @@ const debug = {
   stream: Debug('evds.db.stream')
 };
 
-const createSubscribeFn = require('./modules/subscribe-fn.js');
+const addSubscription = require('./modules/subscribe-fn.js');
 
-const handleClientConnection = (dbAccessControl) => (client) => {
+const handleClientConnection = (dbAccessControl, db) => (client) => {
   require('debug')('evds.server.start.pid')(process.pid);
   // require('debug')('evds.connect')(client.handshake);
 
-  client.use(async function checkAccess(packet, next) {
+  client.use(function checkAccess(packet, next) {
     if (dbAccessControl) {
       const [event, args] = packet;
       return dbAccessControl(event, args, client, next);
@@ -31,37 +31,19 @@ const handleClientConnection = (dbAccessControl) => (client) => {
 
   const dbSubscriptions = new Map();
 
-  const onSubscribe = createSubscribeFn(client, dbSubscriptions);
+  const onSubscribe = (params, callback) => {
+    addSubscription(params, callback, client, db, dbSubscriptions);
+  };
   client.on('subscribe', onSubscribe);
-  // subscribe to entire bucket
-  client.on('subscribeBucket', (params, callback) => {
-    onSubscribe(params, callback);
-  });
+  client.on('subscribeBucket', onSubscribe);
 
-  client.on('get', require('./modules/db-get'));
+  const dbGet = require('./modules/db-get')(db);
+  client.on('get', dbGet);
 
-  const dbDel = require('./modules/db-del');
+  const dbDel = require('./modules/db-del')(db);
   client.on('delete', dbDel);
 
-  client.on('disconnect', () => {
-    try {
-      // cleanup dbSubscriptions
-      [...dbSubscriptions].forEach(([, cleanup]) => {
-        cleanup();
-      });
-      dbSubscriptions.clear();
-      // cleanup socket client
-      const eventNames = client.eventNames();
-      eventNames.forEach(name => {
-        client.removeAllListeners(name);
-      });
-    }
-    catch(err) {
-      require('debug')('db.cleanup.error', err);
-    }
-  });
-
-  const dbPut = require('./modules/db-put');
+  const dbPut = require('./modules/db-put')(db);
   client.on('put', dbPut);
 
   const { applyReducer } = require('fast-json-patch');
@@ -97,13 +79,38 @@ const handleClientConnection = (dbAccessControl) => (client) => {
   };
 
   client.on('patch', dbPatch);
+
+  client.on('disconnect', () => {
+    try {
+      // cleanup dbSubscriptions
+      [...dbSubscriptions].forEach(([, cleanup]) => {
+        cleanup();
+      });
+      dbSubscriptions.clear();
+      // cleanup socket client
+      const eventNames = client.eventNames();
+      eventNames.forEach(name => {
+        client.removeAllListeners(name);
+      });
+    }
+    catch(err) {
+      require('debug')('db.cleanup.error', err);
+    }
+  });
 };
 
 const init = (server, modules, accessControlFn) => {
   const io = require('socket.io')();
   io.listen(server)
-    .on('connection', handleClientConnection(accessControlFn));
-  modules.forEach(fn => fn(io));
+    .on('connection', async (client) => {
+      let db;
+      try {
+        db = await getDbClient(client.handshake.query.storeName);
+        handleClientConnection(accessControlFn, db)(client);
+      } catch(err) {
+        console.error(err);
+      }
+    });
   return io;
 };
 

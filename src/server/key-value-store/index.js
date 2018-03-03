@@ -212,6 +212,7 @@ const createFactory = (rootDir) => {
 };
 
 module.exports = createFactory;
+module.exports.isDb = db => db.constructor === KV;
 module.exports.dbsOpened = dbsOpened;
 module.exports.putWithLog = putWithLog;
 module.exports.delWithLog = delWithLog;

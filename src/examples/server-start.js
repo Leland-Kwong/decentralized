@@ -11,33 +11,42 @@ const app = new App();
 
 const connection = new SocketClient({
   uri: 'http://localhost:3000',
-  token: serverAuthTokenApiKey
+  token: serverAuthTokenApiKey,
+  storeName: 'client'
 });
 
-const tick = () => {
+const tick = async () => {
   connection.socket
     .on('connect', () => {
       console.log('server socket connected!');
     })
     .on('error', (err) => console.error(err));
 
-  let count = 0;
-  const id = setInterval(() => {
-    connection.put({
-      bucket: 'ticker',
-      key: 'count',
-      value: count++
-    }).catch(error => {
-      clearInterval(id);
-      console.error(error);
-    });
-  }, 1000);
+  try {
+    const currentCount = await connection
+      .bucket('ticker')
+      .key('count')
+      .get();
+    let count = currentCount;
+    const id = setInterval(() => {
+      connection.put({
+        bucket: 'ticker',
+        key: 'count',
+        value: count++
+      }).catch(error => {
+        clearInterval(id);
+        console.error(error);
+      });
+    }, 1000);
+  } catch(err) {
+    console.error('TICK ERROR:', err);
+  }
 };
 
 const getTokenFromSocket = (socket) =>
   socket.handshake.query.token;
 
-const sessionCheck = async (client, next) => {
+const accessControl = async (event, args, client, next) => {
   const tokenId = getTokenFromSocket(client);
 
   const authBypass = tokenId === serverAuthTokenApiKey
@@ -56,12 +65,8 @@ const sessionCheck = async (client, next) => {
   }
 };
 
-const accessControl = (event, args, client, next) => {
-  return sessionCheck(client, next);
-};
-
 app
   .dbAccessControl(accessControl)
-  // .use(tick)
-  .start()
-  .on('connect', tick);
+  .start();
+
+tick();
