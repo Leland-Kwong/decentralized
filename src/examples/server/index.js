@@ -1,9 +1,9 @@
-const App = require('../../server');
-const SocketClient = require('../../isomorphic/socket-client');
 const {
   socketServerAdminApiKey: serverAuthTokenApiKey,
   socketClientDevAuthToken
 } = require('../../server/config');
+const App = require('../../server');
+const SocketClient = require('../../isomorphic/socket-client');
 const Token = require('../../server/login/token');
 const backup = require('./cloud-backup');
 const AccessToken = Token({ storeName: 'client' });
