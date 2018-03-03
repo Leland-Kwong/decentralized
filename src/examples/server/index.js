@@ -68,11 +68,18 @@ const getTokenFromSocket = (socket) =>
 const accessControl = async (event, args, client, next) => {
   const tokenId = getTokenFromSocket(client);
 
+  // TODO: add tests for different environments to make sure this works properly. #mvp
   const authBypass = !isProduction && (
-    tokenId === serverAuthTokenApiKey
-    || tokenId === socketClientDevAuthToken
+    socketClientDevAuthToken &&
+      (tokenId === socketClientDevAuthToken)
   );
   if (authBypass) {
+    return next();
+  }
+
+  if (serverAuthTokenApiKey &&
+      (tokenId === serverAuthTokenApiKey)
+  ) {
     return next();
   }
 

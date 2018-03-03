@@ -1,5 +1,4 @@
 // TODO: improve debuggability by by creating path-scoped (bucket/key) eventIds.
-// TODO: make client isomorphic
 // TODO: during server syncing, we should also grab all change events from the oplog
 // TODO: add support for bucket mutation events for granular bucket observing. #mvp #performance
 // TODO: add support for listener removal for subscribers and offline listeners #mvp

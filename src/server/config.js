@@ -19,9 +19,9 @@ const dbRoot = {
   development: dbRootPath(`/tmp/_data`),
   production: dbRootPath(`/tmp/_data`)
 };
-const secret = process.env.NODE_ENV === 'test'
-  ? 'secret'
-  : process.env.SUPER_SECRET;
+const secret = process.env.NODE_ENV === 'production'
+  ? process.env.SUPER_SECRET
+  : 'secret';
 module.exports = {
   dbCacheSize: bytes('550MB'),
   dbBasePath: dbRoot[process.env.NODE_ENV],

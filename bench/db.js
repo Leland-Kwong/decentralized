@@ -5,8 +5,8 @@ const debug = require('debug');
 const log = (ns, ...rest) => debug(`bench.${ns}`)(...rest);
 const Stream = require('../src/server/key-value-store/utils/stream');
 
-const itemCount = 50000;
-const lorem = 'Lorem';
+const itemCount = 10000;
+const lorem = 'Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.';
 const bucket = `figaro_I_am_a_big_key_${lorem.replace(/[\s,]/g, '_')}`;
 
 function generateItems() {
@@ -31,7 +31,7 @@ function generateItems() {
 
   Perf('json.stringify');
   console.log(
-    JSON.stringify(items[0].value).length
+    JSON.stringify(items[0].value).length + bucket.length
   );
   // log('', Perf('generate items'));
   return items;
@@ -56,8 +56,7 @@ async function bench(insertData) {
         }
       }
       const method = 'putWithLog';
-      items.forEach(async item => {
-        const db = await getDb('client');
+      items.forEach(item => {
         KV[method](db, item.key, item, onPut);
       });
 

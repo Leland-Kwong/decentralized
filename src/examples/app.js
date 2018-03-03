@@ -467,13 +467,13 @@ function startApp() {
     }
 
     render() {
-      // if (!this.state.loggedIn) {
-      //   return (
-      //     <section>
-      //       <LoginForm onAuthorized={this.handleLogin} />
-      //     </section>
-      //   );
-      // }
+      if (!this.state.loggedIn) {
+        return (
+          <section>
+            <LoginForm onAuthorized={this.handleLogin} />
+          </section>
+        );
+      }
       return (
         <div>
           <Example
