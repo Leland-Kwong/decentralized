@@ -3,7 +3,7 @@ const bytes = require('bytes');
 const path = require('path');
 
 // NOTE: this prevents us from loading the '.env' file because of accidental deployment.
-if (process.env.NODE_ENV !== 'production') {
+if (process.env.NODE_ENV === 'production') {
   require('dotenv').config();
 }
 
@@ -11,11 +11,13 @@ if (process.env.NODE_ENV === 'development') {
   require('dotenv').config({ path: path.resolve(process.cwd(), '.env.development') });
 }
 
+const homedir = require('os').homedir();
+const dbRootPath = (dbPath) => path.join(homedir, dbPath);
 const dbRoot = {
-  test: '/tmp/test/_data',
-  bench: '/tmp/_bench',
-  development: '/tmp/_data',
-  production: '/tmp/_data'
+  test: dbRootPath(`/tmp/test/_data`),
+  bench: dbRootPath(`/tmp/_bench`),
+  development: dbRootPath(`/tmp/_data`),
+  production: dbRootPath(`/tmp/_data`)
 };
 const secret = process.env.NODE_ENV === 'test'
   ? 'secret'
