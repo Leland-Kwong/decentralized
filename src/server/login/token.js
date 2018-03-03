@@ -77,20 +77,16 @@ function Token(params) {
       return await db.delete(tokenId);
     },
     async verify(tokenId) {
-      try {
-        const token = await db.get(tokenId);
-        const time = TimeMS();
-        const hasExpired = token && (token.expiresAt < time);
-        if (hasExpired) {
-          throw new TokenError('token expired');
-        }
-        if (!token) {
-          throw new TokenError('invalid token');
-        }
-        return token;
-      } catch(err) {
-
+      const token = await db.get(tokenId);
+      const time = TimeMS();
+      const hasExpired = token && (token.expiresAt < time);
+      if (hasExpired) {
+        throw new TokenError('token expired');
       }
+      if (!token) {
+        throw new TokenError('invalid token');
+      }
+      return token;
     },
     async refresh(tokenId, expiresAt = defaultExpiresAt()) {
       try {
