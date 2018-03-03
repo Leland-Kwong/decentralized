@@ -24,9 +24,7 @@ const tick = async () => {
 
       const getDbClient = require('../../server/modules/get-db');
       const Stream = require('../../server/key-value-store/utils/stream');
-      const Perf = require('perf-profile');
       const db = await getDbClient('client');
-      Perf('oplog count');
       const options = {
         bucket: '_opLog',
         once: true,
@@ -36,7 +34,7 @@ const tick = async () => {
       let logCount = 0;
 
       await Stream(db, options, () => logCount++);
-      console.log(logCount, Perf('oplog count'));
+      console.log(logCount);
     })
     .on('error', (err) => console.error(err));
 
