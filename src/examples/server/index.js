@@ -8,6 +8,7 @@ const Token = require('../../server/login/token');
 const backup = require('./cloud-backup');
 const AccessToken = Token({ storeName: 'client' });
 const { CronJob } = require('cron');
+const Now = require('performance-now');
 
 const app = new App();
 
@@ -32,9 +33,10 @@ const tick = async () => {
         // limit: 1000
       };
       let logCount = 0;
-
+      const start = Now();
       await Stream(db, options, () => logCount++);
       console.log(logCount);
+      console.log('took: ', Now() - start);
     })
     .on('error', (err) => console.error(err));
 

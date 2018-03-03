@@ -4,6 +4,7 @@ const { encodeData, decodeData } = require('../key-value-store/codecs');
 const { validateBucket } = require('../modules/validate-db-paths');
 
 const bucketKeyDelim = '/';
+const isProduction = process.env.NODE_ENV === 'production';
 const encoding = {
   /*
     Buckets have a string requirement of only basic characters as defined in
@@ -15,7 +16,7 @@ const encoding = {
     buffer: false,
     encode: input => {
       if (
-        process.env.NODE_ENV !== 'production' &&
+        !isProduction &&
         ( !input || (typeof input !== 'object') )
       ) {
         throw `key must be an object of { bucket: String, key: String }, received '${input}'`;

@@ -10,7 +10,7 @@
     }
   },
   "scripts": {
-    "start": "NODE_ENV=production pm2 start src/examples/server/index.js",
+    "start": "pm2 start ecosystem.config.js --env production",
     "start:dev": "NODE_ENV=development BABEL_ENV=development parcel index.html",
     "start:staging": "NODE_ENV=staging parcel index.html",
     "start:dev.server": "DEBUG=evds.* NODE_ENV=development nodemon src/examples/server/index.js",
