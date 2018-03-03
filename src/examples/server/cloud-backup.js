@@ -2,7 +2,7 @@
 const fs = require('fs');
 const archiver = require('archiver');
 const os = require('os');
-const Perf = require('perf-profile');
+const Now = require('performance-now');
 
 function writeArchive({ path: filePath }) {
   // create a file to stream archive data to.
@@ -10,8 +10,6 @@ function writeArchive({ path: filePath }) {
   const archive = archiver('zip', {
     zlib: { level: 4 } // Sets the compression level.
   });
-
-  Perf('zip');
 
   // good practice to catch warnings (ie stat failures and other non-blocking errors)
   archive.on('warning', function(err) {
@@ -67,7 +65,6 @@ function writeArchive({ path: filePath }) {
     output.on('close', function() {
       console.log(archive.pointer() + ' total bytes');
       console.log('archiver has been finalized and the output file descriptor has closed.');
-      console.log('took:', Perf('zip').end());
       resolve();
     });
     archive.finalize();
@@ -80,8 +77,7 @@ const s3 = new AWS.S3({
   accessKeyId: 'AKIAIN7XGWLGB7GSVNUQ'
 });
 function awsSync(stream) {
-  const perf = () => Perf('aws s3 backup');
-  perf();
+  const start = Now();
   const params = {
     Bucket: 'my-personal-projects',
     Key: 'todos',
@@ -90,7 +86,7 @@ function awsSync(stream) {
   return new Promise((resolve, reject) => {
     s3.upload(params, function(err, data) {
       if (err) reject(err);
-      else resolve({ data, took: perf() });
+      else resolve({ data, took: Now() - start });
     });
   });
 }
