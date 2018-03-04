@@ -27,4 +27,4 @@ const session = {
   )
 };
 
-export default session;
+module.exports = session;

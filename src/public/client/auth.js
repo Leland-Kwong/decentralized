@@ -1,4 +1,4 @@
-const session = require('./session').default;
+const session = require('./session');
 const { serverApiBaseRoute } = require('./config');
 
 let hasExpired = false;

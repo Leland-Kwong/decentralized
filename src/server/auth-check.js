@@ -1,4 +1,3 @@
-const debug = require('debug')('auth.check');
 const Token = require('./login/token');
 const { verify, getByTokenId } = Token({ storeName: 'client' });
 
@@ -18,11 +17,10 @@ const authPerfLoggedIn = require('debug')('authPerf.loggedIn');
  */
 const authCheck = async (req, res, next) => {
   const start = Now();
-  const { origin, host, authorization } = req.headers;
+  const { authorization } = req.headers;
 
   const requestToken = authorization && authorization.replace('Bearer ', '');
 
-  debug({ origin, host });
   if (!requestToken) {
     return unauthorizeRequest(res, {
       errorCode: 0,
@@ -30,9 +28,6 @@ const authCheck = async (req, res, next) => {
     });
   }
 
-  if (req.path.match('refresh-token')) {
-    debug(requestToken);
-  }
   try {
     // verify
     await verify(requestToken);

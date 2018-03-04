@@ -9,9 +9,7 @@ import Input from './Input';
 import debounce from 'lodash.debounce';
 import { getTimeMS } from '../isomorphic/lexicographic-id';
 import { HotKeys } from 'react-hotkeys';
-import { serverApiBaseRoute, setEnv } from '../public/client/config';
-
-setEnv('production');
+import { serverApiBaseRoute, isDev } from '../public/client/config';
 
 const log = (ns, ...rest) =>
   console.log(`lucidbyte.client.${ns}`, ...rest);
@@ -429,7 +427,6 @@ function startApp() {
     }
   }
 
-  // const devToken = '6285db0b82e7b141b866bde7';
   class App extends Component {
     state = {
       loggedIn: session.get().accessToken || false,
@@ -439,6 +436,8 @@ function startApp() {
 
     componentDidMount() {
       if (this.state.loggedIn) {
+        if (isDev) return;
+
         const { expiresAt } = session.get();
         auth.scheduleTokenRefresh({
           expiresAt,

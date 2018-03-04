@@ -1,7 +1,9 @@
 const {
   socketServerAdminApiKey: serverAuthTokenApiKey,
-  socketClientDevAuthToken
 } = require('../../server/config');
+const {
+  devToken: socketClientDevAuthToken
+} = require('../../public/client/config');
 const App = require('../../server');
 const SocketClient = require('../../isomorphic/socket-client');
 const Token = require('../../server/login/token');

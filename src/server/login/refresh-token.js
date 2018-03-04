@@ -8,7 +8,6 @@ const authCheck = require('../auth-check');
 module.exports = (app) => {
   app.options('/api/refresh-token', cors({ methods: ['GET'] }));
   app.get('/api/refresh-token', cors(), authCheck, async (req, res) => {
-    // grab the latest changes for a project
     const { decodedToken } = req;
     const expiresAt = expirationTimeUnix(expiresIn);
     try {
