@@ -31,7 +31,10 @@ module.exports = async function dbSubscribe(
   const watchEntireBucket = key === '';
   const checkRange = require('./../../isomorphic/is-value-in-range');
   const isInRange = checkRange(gt, gte, lt, lte);
-  // watch entire bucket
+  /*
+    Watch entire bucket. Triggers a new stream request whenever a change happens
+    in order to make sure we grab the latest results represented by a query or filter.
+   */
   if (watchEntireBucket) {
     const onStreamError = (error) => {
       client.emit(eventId, { error: error.message });
