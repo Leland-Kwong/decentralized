@@ -48,7 +48,6 @@ module.exports = (storeName) => {
   const config = {
     storeName,
     encoding,
-    // onOpened: logChanges
   };
   return dbFactory(config);
 };

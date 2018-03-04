@@ -59,14 +59,10 @@ class KV extends LevelUp {
   constructor(db, rootDir, options) {
     super(db, dbBaseConfig);
     const {
-      onOpened,
       cache = true
     } = options;
     this.cache = cache;
     this.rootDir = rootDir;
-
-    onOpened &&
-      this.on('open', () => onOpened(this));
 
     setupLogging(this);
 

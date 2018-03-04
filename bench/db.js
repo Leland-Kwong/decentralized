@@ -3,6 +3,7 @@ const KV = require('../src/server/key-value-store');
 const Perf = require('perf-profile');
 const debug = require('debug');
 const log = (ns, ...rest) => debug(`bench.${ns}`)(...rest);
+const chance = require('chance')();
 const Stream = require('../src/server/key-value-store/utils/stream');
 
 const itemCount = 10000;
@@ -11,7 +12,7 @@ const bucket = `figaro_I_am_a_big_key_${lorem.replace(/[\s,]/g, '_')}`;
 
 function generateItems() {
   Perf('generate items');
-  // const list = new Array(1).fill(0).map(() => chance.paragraph());
+  const paras = new Array(1).fill(0).map(() => chance.paragraph());
   const items = new Array(itemCount).fill(0).map((_, i) => {
     return {
       type: 'json',
@@ -22,7 +23,7 @@ function generateItems() {
       },
       value: {
         data: {
-          // list
+          paras,
           list: new Array(20).fill(0).map(() => Math.random())
         }
       },
@@ -81,15 +82,15 @@ async function run() {
   try {
     Perf('read stream');
     let count = 0;
-    const streamOptions = { bucket, values: false, limit: itemCount, reverse: true };
-    await Stream(db, streamOptions, (data, stream) => {
-      if (count >= 1) {
-        stream.destroy();
-      }
+    const streamOptions = { bucket, limit: itemCount };
+    await Stream(db, streamOptions, () => {
+      // if (count >= 1) {
+      //   stream.destroy();
+      // }
       count++;
     });
     const perf = Perf('read stream');
-    console.log(
+    log('read stream',
       perf,
       count
     );
