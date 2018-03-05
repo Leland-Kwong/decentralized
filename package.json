@@ -13,7 +13,7 @@
     "start": "pm2 start ecosystem.config.js --env production",
     "start:dev": "NODE_ENV=development BABEL_ENV=development parcel index.html",
     "start:staging": "NODE_ENV=staging parcel index.html",
-    "start:dev.server": "DEBUG=evds.* NODE_ENV=development nodemon src/examples/server/index.js",
+    "start:dev.server": "DEBUG=evds.* NODE_ENV=development nodemon --max_old_space_size=750 --inspect src/examples/server/index.js",
     "test": "NODE_ENV=test jest",
     "deploy": "now --dotenv",
     "bench.db": "DEBUG=bench.* NODE_ENV=bench node bench/db.js",
@@ -56,6 +56,7 @@
     "request": "^2.83.0",
     "shortid": "^2.2.8",
     "socket.io": "^2.0.4",
+    "socket.io-json-parser": "^2.1.0",
     "tiny-emitter": "^2.0.2"
   },
   "devDependencies": {

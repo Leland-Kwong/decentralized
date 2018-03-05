@@ -1,10 +1,6 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-
-const memwatch = require('memwatch-next');
-memwatch.on('leak', (info) => {
-  console.error('Memory leak detected:\n', info);
-});
+require('./modules/mem-watch');
 
 class App {
   constructor(options = {}) {
@@ -28,9 +24,9 @@ class App {
     app.use(bodyParser.json({ limit: '10MB' }));
     const server = require('http').createServer(app);
     // setup express server
-    require('./routes')(app);
+    const http = require('./routes')(app);
     // setup socket server
-    require('./socket')(
+    const socket = require('./socket')(
       server,
       this.modules,
       this.dbAccessControlFn
@@ -40,7 +36,7 @@ class App {
       if (err) console.error(err);
       app.emit('connect');
     });
-    return app;
+    return { http, socket };
   }
 }
 

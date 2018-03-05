@@ -10,6 +10,7 @@ const dbNsEvent = require('../modules/db-ns-event');
 const fs = require('fs-extra');
 const {
   dbGlobalCache,
+  setCache,
 } = require('./global-cache');
 
 const handleDbCacheDispose = db => db.close();
@@ -49,8 +50,6 @@ function setupLogging(db) {
 
 // (https://github.com/Level/leveldown#leveldownopenoptions-callback)
 const dbBaseConfig = {
-  // disable cache since we're using a single
-  // globally shared cache. (file: global-cache.js)
   cacheSize: require('bytes')('200MB'),
 };
 
@@ -121,7 +120,12 @@ const handleGetError = error => {
   console.error('[GET ERROR]', error);
 };
 
-const getOptions = { fillCache: false };
+const getOptions = {
+  // Instead of using leveldb's built-in cache, we're caching parsed results to
+  // a javascript lru cache. This way we don't have to json.parse the output
+  // everytime.
+  fillCache: false
+};
 KVProto.get = function getWithGlobalCache(key) {
   const path = this.cacheKey(key);
   if (this.cache) {
@@ -132,10 +136,11 @@ KVProto.get = function getWithGlobalCache(key) {
   }
   const handleGetResult = data => {
     const { parsed, raw } = data;
-    dbGlobalCache.set(path, {
-      value: parsed,
-      size: Buffer.byteLength(raw + path)
-    });
+    setCache(
+      path,
+      parsed,
+      Buffer.byteLength(raw + path)
+    );
     return parsed;
   };
   return getProto.call(this, key, getOptions)
@@ -152,7 +157,7 @@ const putWithLog = function(db, putKey, value, callback) {
 };
 
 const delWithLog = function(db, putKey, callback) {
-  const entry = LogEntry(putKey, { actionType: 'del' });
+  const entry = LogEntry(putKey, { actionType: 'del', value: '' });
   return db.batch()
     .del(putKey)
     .put(entry.key, entry.value)
@@ -167,7 +172,7 @@ const batchWithLog = function(db, items, callback) {
     batch[method](key, value);
     const logValue = value || { actionType: 'del' };
     const entry = LogEntry(key, logValue);
-    batch[method](entry.key, entry.value);
+    batch.put(entry.key, entry.value);
   }
   return batch.write(callback);
 };

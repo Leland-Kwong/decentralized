@@ -9,5 +9,8 @@ const dbGlobalCache = LRU({
 });
 
 module.exports = {
-  dbGlobalCache
+  dbGlobalCache,
+  setCache(path, value, size) {
+    dbGlobalCache.set(path, { value, size });
+  }
 };

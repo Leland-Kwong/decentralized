@@ -15,9 +15,14 @@ const encoding = {
     type: 'multi',
     buffer: false,
     encode: input => {
-      if (
+      const isPlainObject = input && 'object' === typeof input;
+      if (!isPlainObject) {
+        return input;
+      }
+      else if (
         !isProduction &&
-        ( !input || (typeof input !== 'object') )
+        !('bucket' in input) &&
+        !('key' in input)
       ) {
         throw `key must be an object of { bucket: String, key: String }, received '${input}'`;
       }

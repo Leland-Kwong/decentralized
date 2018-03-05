@@ -100,8 +100,13 @@ class LoginForm extends Component {
 }
 
 function tail(db) {
+  const oplogQuery = /* GraphQL */`
+    {
+      v
+    }
+  `;
   db.bucket('_opLog')
-    .inspect({ limit: 1 }, res => {
+    .inspect({ limit: 1, }, res => {
       const { key, value } = res;
       log('[OPLOG]', {
         key,
@@ -228,20 +233,14 @@ function startApp() {
           console.log('SUBSCRIBE', value.message);
         });
 
-      let items;
       sockClient.subscribe({
         bucket: 'leland.list',
         limit: 5,
         reverse: true
       }, (data) => {
-        items = items || {};
+        const { items } = this.state;
         items[data.key] = data.value;
-      }, () => {
-        if (!items) {
-          return;
-        }
         this.setState({ items });
-        items = null;
       });
     }
 

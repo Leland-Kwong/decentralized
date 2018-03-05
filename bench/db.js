@@ -8,11 +8,11 @@ const Stream = require('../src/server/key-value-store/utils/stream');
 
 const itemCount = 10000;
 const lorem = 'Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.';
-const bucket = `figaro_I_am_a_big_key_${lorem.replace(/[\s,]/g, '_')}`;
+const bucket = `figaro_I_am_a_big_key_${lorem.substr(0, 50).replace(/[\s,]/g, '_')}`;
 
 function generateItems() {
   Perf('generate items');
-  const paras = new Array(1).fill(0).map(() => chance.paragraph());
+  const paras = new Array(2).fill(0).map(() => chance.paragraph());
   const items = new Array(itemCount).fill(0).map((_, i) => {
     return {
       type: 'json',
@@ -32,7 +32,7 @@ function generateItems() {
 
   Perf('json.stringify');
   console.log(
-    JSON.stringify(items[0].value).length + bucket.length
+    JSON.stringify(items[0].value).length
   );
   // log('', Perf('generate items'));
   return items;
@@ -82,7 +82,7 @@ async function run() {
   try {
     Perf('read stream');
     let count = 0;
-    const streamOptions = { bucket, limit: itemCount };
+    const streamOptions = { bucket };
     await Stream(db, streamOptions, () => {
       // if (count >= 1) {
       //   stream.destroy();

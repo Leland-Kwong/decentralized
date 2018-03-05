@@ -16,7 +16,6 @@ const addSubscription = require('./modules/subscribe-fn.js');
 
 const handleClientConnection = (dbAccessControl, db) => (client) => {
   require('debug')('evds.server.start.pid')(process.pid);
-  // require('debug')('evds.connect')(client.handshake);
 
   client.use(function checkAccess(packet, next) {
     if (dbAccessControl) {

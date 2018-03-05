@@ -20,19 +20,14 @@ module.exports = async function dbSubscribe(
     eventId,
     bucket,
     key = '',
-    gt,
-    lt,
-    gte,
-    lte,
     initialValue = true,
     once = false,
+    limit,
     query,
   } = params;
   const watchEntireBucket = key === '';
-  const checkRange = require('./../../isomorphic/is-value-in-range');
-  const isInRange = checkRange(gt, gte, lt, lte);
   /*
-    Watch entire bucket. Triggers a new stream request whenever a change happens
+    Watch entire bucket. Naively triggers a new stream request whenever a change happens
     in order to make sure we grab the latest results represented by a query or filter.
    */
   if (watchEntireBucket) {
@@ -40,7 +35,15 @@ module.exports = async function dbSubscribe(
       client.emit(eventId, { error: error.message });
     };
     const onStreamEnd = () => client.emit(eventId, doneFrame);
-    const onData = (data) => {
+    let streamedCount = 0;
+    // leveldb treats {limit: -1} as no limit
+    const normalizedLimit = limit === -1 ? Infinity : limit;
+    const onData = (data, stream) => {
+      streamedCount++;
+      if (streamedCount >= normalizedLimit) {
+        stream.destroy();
+        streamedCount = 0;
+      }
       const response = {};
       if (data.key) {
         response.key = data.key.key;
@@ -50,21 +53,12 @@ module.exports = async function dbSubscribe(
       }
       client.emit(eventId, response);
     };
-    const bucketStream = (actionType) => (changeKey, newValue) => {
-      if (
-        'undefined' !== typeof changeKey
-        && isInRange(changeKey)
-      ) {
-        const frame = { key: changeKey, action: actionType };
-        if (actionType !== 'del') {
-          frame.value = queryData(query, newValue);
-        }
-        client.emit(eventId, frame);
+    const bucketStream = () => () => {
+      const stream = Stream(db, params, onData);
+      if (once) {
+        stream.then(onStreamEnd);
       }
-
-      Stream(db, params, onData)
-        .then(onStreamEnd)
-        .catch(onStreamError);
+      stream.catch(onStreamError);
     };
 
     if (initialValue) {
@@ -113,13 +107,13 @@ module.exports = async function dbSubscribe(
       }
 
       // setup subscription
-      const onPut = async (key, { value }) => {
+      const onPut = (key, { value }) => {
         client.emit(
           eventId,
           { action: 'put', value: queryData(query, value) }
         );
       };
-      const onDel = async () => {
+      const onDel = () => {
         client.emit(eventId, { action: 'del' });
       };
       const putEvent = dbNsEvent('put', bucket, key);

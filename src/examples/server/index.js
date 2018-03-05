@@ -5,42 +5,20 @@ const {
   devToken: socketClientDevAuthToken
 } = require('../../public/client/config');
 const App = require('../../server');
-const SocketClient = require('../../isomorphic/socket-client');
 const Token = require('../../server/login/token');
 const backup = require('./cloud-backup');
 const AccessToken = Token({ storeName: 'client' });
 const { CronJob } = require('cron');
-const Now = require('performance-now');
+const connectSocket = require('./socket-connect');
+// const Now = require('performance-now');
+
+const connection = connectSocket();
 
 const app = new App();
 const isProduction = process.env.NODE_ENV === 'production';
 
-const connection = new SocketClient({
-  uri: 'http://localhost:3000',
-  token: serverAuthTokenApiKey,
-  storeName: 'client'
-});
-
 const tick = async () => {
   connection.socket
-    .on('connect', async () => {
-      console.log('server socket connected!');
-
-      const getDbClient = require('../../server/modules/get-db');
-      const Stream = require('../../server/key-value-store/utils/stream');
-      const db = await getDbClient('client');
-      const options = {
-        bucket: '_opLog',
-        once: true,
-        values: false,
-        // limit: 1000
-      };
-      let logCount = 0;
-      const start = Now();
-      await Stream(db, options, () => logCount++);
-      console.log(logCount);
-      console.log('took: ', Now() - start);
-    })
     .on('error', (err) => console.error(err));
 
   try {
@@ -49,15 +27,17 @@ const tick = async () => {
       .key('count')
       .get();
     let count = currentCount;
-    const id = setInterval(() => {
+    let id = null;
+    const intervalError = error => {
+      clearInterval(id);
+      console.error(error);
+    };
+    id = setInterval(() => {
       connection.put({
         bucket: 'ticker',
         key: 'count',
         value: count++
-      }).catch(error => {
-        clearInterval(id);
-        console.error(error);
-      });
+      }).catch(intervalError);
     }, 1000);
   } catch(err) {
     console.error('TICK ERROR:', err);
@@ -119,5 +99,5 @@ app
   .dbAccessControl(accessControl)
   .start();
 
-tick();
+// tick();
 autoBackup();
