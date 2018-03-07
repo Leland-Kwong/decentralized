@@ -1,5 +1,5 @@
 import createEventId, {
-  freeUpEventId,
+  releaseId,
   availableIds
 } from '../src/public/client/event-id';
 
@@ -13,7 +13,7 @@ describe('event ids', () => {
 
   test('free up', () => {
     const eventId = createEventId();
-    freeUpEventId(eventId);
+    releaseId(eventId);
     expect(availableIds[0]).toBe(eventId);
   });
 });

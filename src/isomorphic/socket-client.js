@@ -4,7 +4,7 @@
 // TODO: add support for listener removal for subscribers and offline listeners #mvp
 
 const createEventId = require('../public/client/event-id');
-const { freeUpEventId } = createEventId;
+const { releaseId } = createEventId;
 const noop = require('./noop');
 
 const isServer = typeof window === 'undefined';
@@ -30,6 +30,7 @@ class Socket {
     this._bucket = '';
     this._key = '';
     this._filters = {};
+    this.subscriptionsByEventId = new Map();
   }
 }
 
@@ -128,9 +129,10 @@ Object.assign(Socket.prototype, {
       params.eventId =
         createEventId(`subscribeBucket/${bucket}`, this.config.dev);
     let onSubscribeBucket = null;
-    const cleanup = () => {
-      freeUpEventId(eventId);
-      socket.off(eventId, onSubscribeBucket);
+    const handleDisconnect = () => {
+      socket.once('reconnect', () => {
+        this._subscribeBucket(...args);
+      });
     };
     onSubscribeBucket = (data) => {
       if (data.error) {
@@ -141,26 +143,24 @@ Object.assign(Socket.prototype, {
           onComplete();
         }
         if (once) {
-          cleanup();
+          this.unsubscribe(eventId);
         }
         return;
       }
       onData(data);
     };
-
-    params.eventId = eventId;
+    this.subscriptionsByEventId.set(eventId, {
+      onData: onSubscribeBucket,
+      onDisconnect: handleDisconnect
+    });
     socket.on(eventId, onSubscribeBucket);
     socket.emit(
       'subscribeBucket',
       params,
       onAcknowledge
     );
-    socket.once('disconnect', () => {
-      socket.once('reconnect', () => {
-        this._subscribeBucket(...args);
-      });
-    });
-    return cleanup;
+    socket.once('disconnect', handleDisconnect);
+    return eventId;
   },
 
   _subscribeKey(params, onData, onComplete, onError, onAcknowledge) {
@@ -168,18 +168,18 @@ Object.assign(Socket.prototype, {
     const { socket } = this;
     const { once } = params;
     const eventId =
-      params.eventId =
-        createEventId();
+      params.eventId = createEventId();
     let handler = null;
-    const cleanup = () => {
-      freeUpEventId(eventId);
-      socket.off(eventId, handler);
+    const handleDisconnect = () => {
+      socket.once('reconnect', () => {
+        this._subscribeKey(...args);
+      });
     };
     handler = (data) => {
       const { done, error } = data;
       if (done && once) {
         onComplete();
-        return cleanup();
+        return this.unsubscribe(eventId);
       }
       if (error) {
         return onError(error);
@@ -187,17 +187,17 @@ Object.assign(Socket.prototype, {
       onData(data);
     };
     socket[once ? 'once' : 'on'](eventId, handler);
+    this.subscriptionsByEventId.set(eventId, {
+      onData: handler,
+      onDisconnect: handleDisconnect
+    });
     socket.emit(
       'subscribe',
       params,
       onAcknowledge
     );
-    socket.once('disconnect', () => {
-      socket.once('reconnect', () => {
-        this._subscribeKey(...args);
-      });
-    });
-    return cleanup;
+    socket.once('disconnect', );
+    return eventId;
   },
 
   subscribe(onData, onError = noop, onComplete = noop, onAcknowledge = noop) {
@@ -207,8 +207,20 @@ Object.assign(Socket.prototype, {
     if (isBucketPath) {
       return this._subscribeBucket(_params, onData, onError, onComplete, onAcknowledge);
     }
-    this._subscribeKey(_params, onData, onComplete, onError, onAcknowledge);
-    return this;
+    return this._subscribeKey(_params, onData, onComplete, onError, onAcknowledge);
+  },
+
+  unsubscribe(eventId) {
+    const {
+      onData,
+      onDisconnect,
+    } = this.subscriptionsByEventId.get(eventId);
+    const { socket } = this;
+    releaseId(eventId);
+    socket.off(eventId, onData);
+    socket.off('disconnect', onDisconnect);
+    socket.emit(`off.${eventId}`);
+    this.subscriptionsByEventId.delete(eventId);
   },
 
   put(value, cb) {

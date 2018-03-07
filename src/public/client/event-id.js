@@ -1,25 +1,29 @@
 const availableIds = [];
 let idsGenerated = 0;
 
+const usedIds = {};
+
 module.exports = function createEventId(namespace, verbose = false) {
-  if (availableIds.length) {
-    return availableIds.pop();
-  }
+  const idNum = availableIds.length
+    ? availableIds.pop()
+    : idsGenerated ++;
   let prefix = '';
   if (verbose) {
     prefix = namespace ? namespace + '/' : '';
   }
   const eventId = prefix
-    ? prefix + idsGenerated
-    : idsGenerated;
-  idsGenerated++;
+    ? prefix + idNum
+    : idNum;
+  usedIds[eventId] = idNum;
   return eventId;
 };
 
 module.exports.availableIds = availableIds;
-
-const freeUpEventId = (id) => {
-  availableIds.push(id);
+module.exports.releaseId = (eventId) => {
+  const idNum = usedIds[eventId];
+  if (typeof idNum === 'undefined') {
+    return;
+  }
+  availableIds.push(idNum);
+  delete usedIds[eventId];
 };
-
-module.exports.freeUpEventId = freeUpEventId;

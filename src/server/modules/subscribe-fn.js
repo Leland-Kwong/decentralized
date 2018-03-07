@@ -82,9 +82,11 @@ module.exports = async function dbSubscribe(
 
     const changeEvent = dbNsEvent('change', bucket);
     db.on(changeEvent, bucketStream);
-    subscriptions.set(eventId, function cleanup() {
+    function cleanup() {
       db.removeListener(changeEvent, bucketStream);
-    });
+    }
+    subscriptions.set(eventId, cleanup);
+    client.on(`off.${eventId}`, cleanup);
   }
   // watch bucket/key
   else {

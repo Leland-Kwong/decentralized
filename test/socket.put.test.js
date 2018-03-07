@@ -10,7 +10,7 @@ test('socket.put', async () => {
   const key = 'key';
 
   // triggers namespace event
-  const event = dbNsEvent('put', bucket, key);
+  const event = dbNsEvent('change', bucket, key);
   const fn1 = jest.fn();
   db.on(event, fn1);
 
