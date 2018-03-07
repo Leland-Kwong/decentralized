@@ -4,6 +4,7 @@
 // TODO: add support for listener removal for subscribers and offline listeners #mvp
 
 const createEventId = require('../public/client/event-id');
+const { freeUpEventId } = createEventId;
 const noop = require('./noop');
 
 const isServer = typeof window === 'undefined';
@@ -25,6 +26,10 @@ class Socket {
     this.config = config;
     this.config.dev = dev;
     this.connect();
+
+    this._bucket = '';
+    this._key = '';
+    this._filters = {};
   }
 }
 
@@ -84,12 +89,19 @@ Object.assign(Socket.prototype, {
     return copy;
   },
 
+  filter(filters) {
+    const copy = this.clone();
+    copy._filters = filters;
+    return copy;
+  },
+
   clone(root) {
     // prevent nested prototype
     const { __root } = this;
     if (!root && __root) {
       const copy = this.clone(__root);
-      copy._bucket = this._bucket;
+      const { _bucket, _key, _filters } = this;
+      Object.assign(copy, { _bucket, _key, _filters });
       return copy;
     }
     const inst = root || this;
@@ -105,7 +117,7 @@ Object.assign(Socket.prototype, {
     return Object.create(inst, proto);
   },
 
-  _subscribeBucket(params, cb, onComplete, onAcknowledge) {
+  _subscribeBucket(params, onData, onError, onComplete, onAcknowledge) {
     const args = arguments;
     const { socket } = this;
     const {
@@ -115,22 +127,25 @@ Object.assign(Socket.prototype, {
     const eventId =
       params.eventId =
         createEventId(`subscribeBucket/${bucket}`, this.config.dev);
-    const onSubscribeBucket = (data) => {
-      // ignore action frames
-      if (data.action) {
-        return;
+    let onSubscribeBucket = null;
+    const cleanup = () => {
+      freeUpEventId(eventId);
+      socket.off(eventId, onSubscribeBucket);
+    };
+    onSubscribeBucket = (data) => {
+      if (data.error) {
+        return onError(data.error);
       }
       if (data.done) {
         if (onComplete) {
-          if (once) {
-            socket.off(eventId, onSubscribeBucket);
-          }
           onComplete();
+        }
+        if (once) {
+          cleanup();
         }
         return;
       }
-
-      cb(data);
+      onData(data);
     };
 
     params.eventId = eventId;
@@ -145,16 +160,33 @@ Object.assign(Socket.prototype, {
         this._subscribeBucket(...args);
       });
     });
+    return cleanup;
   },
 
-  _subscribeKey(params, subscriber, onAcknowledge) {
+  _subscribeKey(params, onData, onComplete, onError, onAcknowledge) {
     const args = arguments;
     const { socket } = this;
     const { once } = params;
     const eventId =
       params.eventId =
         createEventId();
-    socket[once ? 'once' : 'on'](eventId, subscriber);
+    let handler = null;
+    const cleanup = () => {
+      freeUpEventId(eventId);
+      socket.off(eventId, handler);
+    };
+    handler = (data) => {
+      const { done, error } = data;
+      if (done && once) {
+        onComplete();
+        return cleanup();
+      }
+      if (error) {
+        return onError(error);
+      }
+      onData(data);
+    };
+    socket[once ? 'once' : 'on'](eventId, handler);
     socket.emit(
       'subscribe',
       params,
@@ -165,22 +197,23 @@ Object.assign(Socket.prototype, {
         this._subscribeKey(...args);
       });
     });
+    return cleanup;
   },
 
-  subscribe(params, subscriber, onComplete = noop, onAcknowledge = noop) {
+  subscribe(onData, onError = noop, onComplete = noop, onAcknowledge = noop) {
+    const params = this._filters;
     const _params = this.setupParams(params);
-    // if first argument is a function, then that means params is not being passed in
-    if (typeof params === 'function') {
-      return this.subscribe(_params, params, subscriber, onComplete);
+    const isBucketPath = !_params.key.length;
+    if (isBucketPath) {
+      return this._subscribeBucket(_params, onData, onError, onComplete, onAcknowledge);
     }
-    if (typeof _params.key === 'undefined') {
-      return this._subscribeBucket(_params, subscriber, onComplete, onAcknowledge);
-    }
-    this._subscribeKey(_params, subscriber, onAcknowledge);
+    this._subscribeKey(_params, onData, onComplete, onError, onAcknowledge);
+    return this;
   },
 
-  put(params, cb) {
-    const { bucket, key, value } = this.setupParams(params);
+  put(value, cb) {
+    const params = this.setupParams({ value });
+    const { bucket, key } = params;
     const { socket } = this;
 
     const callback = this.promisifySocket('put', params, cb);
@@ -188,29 +221,28 @@ Object.assign(Socket.prototype, {
     return callback.promise;
   },
 
-  patch(params, cb) {
-    // accepts either `value` or `ops` property as the patch
-    const { bucket, key, value, ops } = this.setupParams(params);
+  patch(ops, cb) {
+    const params = this.setupParams({ ops });
+    const { bucket, key } = params;
     const { socket } = this;
-    const patch = value || ops;
 
     const callback = this.promisifySocket(cb);
-    socket.emit('patch', { bucket, key, ops: patch }, callback);
+    socket.emit('patch', { bucket, key, ops }, callback);
     return callback.promise;
   },
 
   // gets the value once
-  get(params, cb) {
+  get(cb) {
     const { socket } = this;
-    const _params = this.setupParams(params);
+    const _params = this.setupParams();
     const callback = this.promisifySocket(cb);
     socket.emit('get', _params, callback);
     return callback.promise;
   },
 
-  del(params, cb) {
+  del(cb) {
     const { socket } = this;
-    const _params = this.setupParams(params);
+    const _params = this.setupParams();
 
     const callback = this.promisifySocket(cb);
     socket.emit('delete', _params, callback);
@@ -231,7 +263,6 @@ Object.assign(Socket.prototype, {
     return params;
   },
 
-  inspect: require('../public/client/inspect-db')
 });
 
 Socket.prototype.promisifySocket = function(

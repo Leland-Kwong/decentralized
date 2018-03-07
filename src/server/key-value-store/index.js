@@ -32,18 +32,23 @@ function kvError({ msg, type }) {
 
 function setupLogging(db) {
   function emitChange(key, value, action) {
-    const keyChangeEvent = dbNsEvent(action, key.bucket, key.key);
-    db.emit(keyChangeEvent, key.key, value);
+    if (action === 'del') {
+      action = 'delete';
+    }
+    const emitValue = value ? value.value : null;
+    const keyChangeEvent = dbNsEvent('change', key.bucket, key.key);
+    db.emit(keyChangeEvent, key.key, emitValue, action);
 
-    const bucketChangeEvent = dbNsEvent(action, key.bucket);
-    db.emit(bucketChangeEvent, key.key, value);
+    const bucketChangeEvent = dbNsEvent('change', key.bucket);
+    db.emit(bucketChangeEvent, key.key, emitValue, action);
   }
 
   db.on('batch', (ops) => {
     const len = ops.length;
     for (let i = 0; i < len; i++) {
       const op = ops[i];
-      emitChange(op.key, op.value, op.type);
+      const action = (op.value && op.value.actionType) || op.type;
+      emitChange(op.key, op.value, action);
     }
   });
 }

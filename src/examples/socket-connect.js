@@ -1,7 +1,7 @@
-const SocketClient = require('../../isomorphic/socket-client');
+const SocketClient = require('../isomorphic/socket-client');
 const {
   socketServerAdminApiKey: serverAuthTokenApiKey,
-} = require('../../server/config');
+} = require('../server/config');
 
 module.exports = () =>
   new SocketClient({

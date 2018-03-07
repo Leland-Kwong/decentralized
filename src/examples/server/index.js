@@ -9,7 +9,7 @@ const Token = require('../../server/login/token');
 const backup = require('./cloud-backup');
 const AccessToken = Token({ storeName: 'client' });
 const { CronJob } = require('cron');
-const connectSocket = require('./socket-connect');
+const connectSocket = require('../socket-connect');
 // const Now = require('performance-now');
 
 const connection = connectSocket();
@@ -100,4 +100,6 @@ app
   .start();
 
 // tick();
-autoBackup();
+if (isProduction) {
+  autoBackup();
+}

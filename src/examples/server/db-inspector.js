@@ -1,9 +1,8 @@
-const connectSocket = require('./socket-connect');
+const connectSocket = require('../socket-connect');
 const connection = connectSocket();
 
 function getLogCount () {
   const options = {
-    bucket: '_opLog',
     // once: true,
     // values: false,
     limit: 1,
@@ -11,10 +10,15 @@ function getLogCount () {
   };
   // const Now = require('performance-now');
   // const start = Now();
-  connection.bucket('_opLog')
-    .subscribe(options, (data) => {
-      // count++;
-      console.log(data);
-    });
+  const $oplog = connection
+    .bucket('_opLog')
+    .filter(options);
+
+  $oplog.subscribe(
+    data => console.log(data),
+    (error) => console.error(error),
+    () => console.log('done')
+  );
+
 }
 getLogCount();

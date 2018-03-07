@@ -7,12 +7,9 @@ import * as auth from '../public/client/auth';
 import session from '../public/client/session';
 import Input from './Input';
 import debounce from 'lodash.debounce';
-import { getTimeMS } from '../isomorphic/lexicographic-id';
 import { HotKeys } from 'react-hotkeys';
 import { serverApiBaseRoute, isDev } from '../public/client/config';
-
-const log = (ns, ...rest) =>
-  console.log(`lucidbyte.client.${ns}`, ...rest);
+import DbViewer from './DbViewer';
 
 const $App = document.querySelector('#App');
 const apiBaseRoute = `${serverApiBaseRoute}/api`;
@@ -99,57 +96,28 @@ class LoginForm extends Component {
   }
 }
 
-function tail(db) {
-  const oplogQuery = /* GraphQL */`
-    {
-      v
-    }
-  `;
-  db.bucket('_opLog')
-    .inspect({ limit: 1, }, res => {
-      const { key, value } = res;
-      log('[OPLOG]', {
-        key,
-        timestamp: new Date(getTimeMS(key)).toISOString(),
-        value
-      });
-    });
-  db.bucket('_sessions')
-    .subscribe(res => {
-      console.log('[SESSIONS]', res);
-    });
-}
-
 function startApp() {
   let sockClient;
 
   class Example extends Component {
     state = {
       message: '',
-      items: [],
+      items: {},
       notification: null,
       started: false
     }
 
-    componentDidMount() {
+    componentWillMount() {
       const uri = serverApiBaseRoute;
       const { token } = this.props;
       const storeName = 'client';
       console.log(token);
-      sockClient = new Socket({
+      this.socketDb = sockClient = new Socket({
         token,
         uri,
         storeName,
         dev: true,
       });
-
-      const client2 = new Socket({
-        token,
-        uri,
-        storeName,
-        dev: true
-      });
-      tail(client2);
 
       sockClient.socket
         .on('connect', this.handleStart)
@@ -217,31 +185,56 @@ function startApp() {
       sockClient
         .bucket('ticker')
         .key('count')
-        .subscribe({}, (data) => {
+        .subscribe((data) => {
           this.setState({ ticker: data.value });
         });
 
       sockClient
         .bucket('leland.chat')
         .key('message')
-        .subscribe({
+        .filter({
           query: /* GraphQL */`
             { message }
           `
-        }, (data) => {
-          const { value } = data;
-          console.log('SUBSCRIBE', value.message);
+        })
+        .subscribe((data) => {
+          console.log('SUBSCRIBE', data.value.message);
         });
 
-      sockClient.subscribe({
-        bucket: 'leland.list',
-        limit: 5,
-        reverse: true
-      }, (data) => {
-        const { items } = this.state;
-        items[data.key] = data.value;
-        this.setState({ items });
-      });
+      const refreshList = () => {
+        // refresh entire list
+        const items = {};
+        sockClient.bucket('leland.list')
+          .filter({
+            once: true,
+            reverse: true,
+            limit: 5,
+          })
+          .subscribe(
+            (data) => {
+              items[data.key] = data.value;
+            },
+            error => console.error(error),
+            () => this.setState({ items })
+          );
+      };
+
+      sockClient.bucket('leland.list')
+        .filter({
+          limit: 1,
+          values: false,
+          initialValue: false
+        })
+        .subscribe((data) => {
+          if (data.event === 'patch') {
+            const { items } = this.state;
+            items[data.key] = data.value;
+            this.setState({ items });
+            return;
+          }
+          refreshList();
+        });
+      refreshList();
     }
 
     setMessage(value) {
@@ -250,27 +243,25 @@ function startApp() {
     }
 
     setMessageUpdateServer = debounce(function update(value) {
-      sockClient.patch({
-        bucket: 'leland.chat',
-        key: 'message',
-        ops: [
+      const messageRef = sockClient
+        .bucket('leland.chat')
+        .key('message');
+      messageRef
+        .patch([
           { op: 'add', path: '/message', value },
           { op: 'add', path: '/nested', value: {} },
           { op: 'add', path: '/nested/value', value },
           { op: 'add', path: '/foo', value: { list: ['bar', 'none', 'ok'] } },
-        ]
-      }).catch(err => {
-        console.error(err);
-        sockClient.put({
-          bucket: 'leland.chat',
-          key: 'message',
-          value: {}
-        }).catch(error => console.error(error))
-          .then(() => {
-            update(value);
-          });
-      });
-    }, 500)
+        ]).catch(err => {
+          console.error(err);
+          messageRef
+            .put({})
+            .catch(error => console.error(error))
+            .then(() => {
+              update(value);
+            });
+        });
+    }, 10)
 
     handleLogout = () => {
       auth.logout()
@@ -295,14 +286,16 @@ function startApp() {
         ...this.state.items,
         [key]: doc
       };
-      this.setState({
-        message: '',
-        items
-      });
       sockClient
         .bucket('leland.list')
         .key(key)
-        .put({ value: doc })
+        .put(doc)
+        .then(() => {
+          this.setState({
+            message: '',
+            items
+          });
+        })
         .catch(err => console.error(err));
     }
 
@@ -313,7 +306,7 @@ function startApp() {
       sockClient
         .bucket('leland.list')
         .key(key)
-        .patch({ ops: patch });
+        .patch(patch);
       this.setState(({ items }) => {
         const itemCopy = { ...this.state.items[key] };
         itemCopy.done = done;
@@ -342,12 +335,10 @@ function startApp() {
     }
 
     updateItemTextServer = debounce((key, value) => {
-      return sockClient.put({
-        bucket: 'leland.list',
-        key,
-        value
-      });
-    }, 500)
+      return sockClient.bucket('leland.list')
+        .key(key)
+        .put(value);
+    }, 10)
 
     render() {
       return (
@@ -366,6 +357,7 @@ function startApp() {
               logout
             </button>
           </section>
+          <DbViewer socketDb={this.socketDb} />
           <section>
             <strong>Ticker: {this.state.ticker}</strong>
           </section>

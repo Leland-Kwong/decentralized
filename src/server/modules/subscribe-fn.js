@@ -20,10 +20,11 @@ module.exports = async function dbSubscribe(
     eventId,
     bucket,
     key = '',
-    initialValue = true,
     once = false,
-    limit,
+    // set a base limit to prevent large lists from accidentally overloading the client
+    limit = 1000,
     query,
+    initialValue = true
   } = params;
   const watchEntireBucket = key === '';
   /*
@@ -53,7 +54,17 @@ module.exports = async function dbSubscribe(
       }
       client.emit(eventId, response);
     };
-    const bucketStream = () => () => {
+    const bucketStream = (key, value, actionType) => {
+      if (actionType) {
+        const response = {
+          event: actionType,
+          value,
+          key
+        };
+        client.emit(eventId, response);
+        // if it was an action, we won't restream all the results
+        return;
+      }
       const stream = Stream(db, params, onData);
       if (once) {
         stream.then(onStreamEnd);
@@ -62,32 +73,18 @@ module.exports = async function dbSubscribe(
     };
 
     if (initialValue) {
-      bucketStream()();
+      bucketStream();
     }
 
     if (once) {
       return;
     }
 
-    const onPut = bucketStream('put');
-    const onDelete = bucketStream('del');
-    // listen to all opLog changes
-    if (bucket === '_opLog') {
-      const putEvent = dbNsEvent('put', bucket);
-      db.on(putEvent, onPut);
-      subscriptions.set(eventId, function cleanup() {
-        db.removeListener(putEvent, onPut);
-      });
-    } else {
-      const putEvent = dbNsEvent('put', bucket);
-      db.on(putEvent, onPut);
-      const delEvent = dbNsEvent('del', bucket);
-      db.on(delEvent, onDelete);
-      subscriptions.set(eventId, function cleanup() {
-        db.removeListener(putEvent, onPut);
-        db.removeListener(delEvent, onDelete);
-      });
-    }
+    const changeEvent = dbNsEvent('change', bucket);
+    db.on(changeEvent, bucketStream);
+    subscriptions.set(eventId, function cleanup() {
+      db.removeListener(changeEvent, bucketStream);
+    });
   }
   // watch bucket/key
   else {
@@ -97,33 +94,36 @@ module.exports = async function dbSubscribe(
           const nsKey = { bucket, key };
           // emit initial value
           const currentValue = await db.get(nsKey);
+          const response = { value: queryData(query, currentValue) };
+          if (once) {
+            response.done = 1;
+          }
           client.emit(
             eventId,
-            { value: queryData(query, currentValue) }
+            response
           );
         } catch(err) {
           debug.streamError(err);
+          client.emit(eventId, { error: err.message });
         }
       }
 
+      if (once) {
+        return;
+      }
+
       // setup subscription
-      const onPut = (key, { value }) => {
+      const onChange = (key, value, actionType) => {
         client.emit(
           eventId,
-          { action: 'put', value: queryData(query, value) }
+          { event: actionType, value: queryData(query, value) }
         );
       };
-      const onDel = () => {
-        client.emit(eventId, { action: 'del' });
-      };
-      const putEvent = dbNsEvent('put', bucket, key);
-      const delEvent = dbNsEvent('del', bucket, key);
+      const changeEvent = dbNsEvent('change', bucket, key);
       subscriptions.set(eventId, function cleanup() {
-        db.removeListener(putEvent, onPut);
-        db.removeListener(delEvent, onPut);
+        db.removeListener(changeEvent, onChange);
       });
-      db.on(putEvent, onPut);
-      db.on(delEvent, onDel);
+      db.on(changeEvent, onChange);
     } catch(err) {
       if (err.type === 'NotFoundError') {
         return;

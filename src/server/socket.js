@@ -47,9 +47,8 @@ const handleClientConnection = (dbAccessControl, db) => (client) => {
   const { applyReducer } = require('fast-json-patch');
   const defaultPatchValue = () => ({});
   const dbPatch = async (data, fn) => {
-    const { bucket, key, ops: patchObject, storeName = 'client' } = data;
+    const { bucket, key, ops: patchObject } = data;
     try {
-      const db = await getDbClient(storeName);
       const nsKey = { bucket, key };
       const curValue = await db.get(nsKey) || defaultPatchValue();
 
