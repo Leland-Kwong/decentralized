@@ -33,12 +33,12 @@ const tick = async () => {
       console.error(error);
     };
     id = setInterval(() => {
-      connection.put({
-        bucket: 'ticker',
-        key: 'count',
-        value: count++
-      }).catch(intervalError);
-    }, 1000);
+      connection
+        .bucket('ticker')
+        .key('count')
+        .put(count++)
+        .catch(intervalError);
+    }, 100);
   } catch(err) {
     console.error('TICK ERROR:', err);
   }
@@ -99,7 +99,7 @@ app
   .dbAccessControl(accessControl)
   .start();
 
-// tick();
+tick();
 if (isProduction) {
   autoBackup();
 }

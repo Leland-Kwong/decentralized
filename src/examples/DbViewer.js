@@ -19,10 +19,10 @@ export default class DbViewer extends Component {
 
   changeBucket = () => {
     const { socketDb } = this.props;
-    this.dispose
-      && this.dispose();
+    this.eventId
+      && socketDb.unsubscribe(this.eventId);
     const $bucket = socketDb.bucket(this.state.bucket);
-    this.dispose = $bucket
+    this.eventId = $bucket
       .filter({
         limit: 1,
         values: false
@@ -30,7 +30,7 @@ export default class DbViewer extends Component {
       .subscribe(() => {
         const newData = {};
         $bucket
-          .filter({ limit: 10, once: true, reverse: true })
+          .filter({ limit: 1, once: true, reverse: true })
           .subscribe(
             data => {
               newData[data.key] = data.value;

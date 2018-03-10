@@ -74,6 +74,7 @@ function writeArchive({ path: filePath }) {
 const AWS = require('aws-sdk');
 const s3 = new AWS.S3({
   region: 'us-west-1',
+  // TODO: this should be in .env instead of out in plain view
   accessKeyId: 'AKIAIN7XGWLGB7GSVNUQ'
 });
 function awsSync(stream) {

@@ -177,6 +177,7 @@ function startApp() {
     }
 
     handleStart = () => {
+      return;
       if (this.state.started) {
         return;
       }
