@@ -75,7 +75,7 @@ const accessControl = async (event, args, client, next) => {
   }
 };
 
-const autoBackup = () => {
+const scheduleBackup = () => {
   // 11:30pm everyday
   const schedule = '00 30 23 * * 0-7';
   const job = new CronJob({
@@ -101,5 +101,5 @@ app
 
 tick();
 if (isProduction) {
-  autoBackup();
+  scheduleBackup('lucidbyte_backup', '/tmp/_data');
 }

@@ -3,8 +3,9 @@ const fs = require('fs');
 const archiver = require('archiver');
 const os = require('os');
 const Now = require('performance-now');
+const shortid = require('shortid');
 
-function writeArchive({ path: filePath }) {
+function writeArchive({ path: filePath, dirToArchive }) {
   // create a file to stream archive data to.
   const output = fs.createWriteStream(filePath);
   const archive = archiver('zip', {
@@ -47,7 +48,7 @@ function writeArchive({ path: filePath }) {
   // archive.directory('subdir/', 'new-subdir');
 
   // append files from a sub-directory, putting its contents at the root of archive
-  archive.directory('/tmp/_data/client', false);
+  archive.directory(dirToArchive, false);
 
   // append files from a glob pattern
   // archive.glob('subdir/*.txt');
@@ -73,15 +74,13 @@ function writeArchive({ path: filePath }) {
 
 const AWS = require('aws-sdk');
 const s3 = new AWS.S3({
-  region: 'us-west-1',
-  // TODO: this should be in .env instead of out in plain view
-  accessKeyId: 'AKIAIN7XGWLGB7GSVNUQ'
+  region: 'us-west-1'
 });
-function awsSync(stream) {
+function awsSync(key, stream) {
   const start = Now();
   const params = {
     Bucket: 'my-personal-projects',
-    Key: 'todos',
+    Key: key,
     Body: stream
   };
   return new Promise((resolve, reject) => {
@@ -92,9 +91,17 @@ function awsSync(stream) {
   });
 }
 
-module.exports = () => {
-  const path = `${os.homedir()}/tmp/archive.zip`;
-  return writeArchive({ path }).then(() => {
-    return awsSync(fs.createReadStream(path));
+/*
+  Backs up data to aws s3. All file paths are relative to home directory.
+ */
+module.exports = (key, dir) => {
+  if (!dir) {
+    throw `'dir' parameter must be provided.`;
+  }
+  const archiveName = shortid.generate();
+  const path = `${os.homedir()}/tmp/archive_${archiveName}.zip`;
+  const dirToArchive = `${os.homedir()}${dir}`;
+  return writeArchive({ path, dirToArchive }).then(() => {
+    return awsSync(key, fs.createReadStream(path));
   });
 };
