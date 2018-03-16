@@ -17,12 +17,13 @@ class App {
 
   start() {
     const {
-      port = 3000,
+      port = process.env.PORT || 3009,
     } = this.options;
 
     const app = express();
     app.use(bodyParser.json({ limit: '10MB' }));
     const server = require('http').createServer(app);
+
     // setup express server
     const http = require('./routes')(app);
     // setup socket server
@@ -32,10 +33,8 @@ class App {
       this.dbAccessControlFn
     );
 
-    server.listen(port, function(err) {
-      if (err) console.error(err);
-      app.emit('connect');
-    });
+    server.on('error', err => console.error(err));
+    server.listen(port);
     return { http, socket };
   }
 }

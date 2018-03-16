@@ -61,6 +61,7 @@ function connect() {
     const cleanup = () => {
       removeFromCache();
     };
+    socket.on('error', error => console.error(error));
     socket.once('disconnect', cleanup);
     socketsByUrl.set(uri, socket);
 
@@ -286,7 +287,7 @@ Socket.prototype.promisifySocket = function(
   const promise = new Promise((resolve, reject) => {
     // default timeout handler to prevent callback from hanging indefinitely
     const timeout = !this.isConnected()
-      ? setTimeout(reject, 5000)
+      ? setTimeout(reject, 5000, 'timeout after 5 seconds')
       : 0;
     promisifiedCallback = ({ error, value }) => {
       if (fulfilled) {

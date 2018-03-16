@@ -10,9 +10,11 @@ module.exports = (db) => {
       key,
       value,
     } = data;
-    const type = (value && (typeof value === 'object'))
+    const valueType = typeof value;
+    const isPlainObject = (value && (valueType === 'object'));
+    const type = isPlainObject
       ? 'json'
-      : 'string';
+      : valueType;
     // pre-encode the value so we can log it
     const putValue = { type, value, actionType: 'put' };
     const putKey = { bucket, key };
@@ -20,7 +22,7 @@ module.exports = (db) => {
       await putWithLog(db, putKey, putValue);
       fn && fn({});
     } catch(err) {
-      require('debug')('db.put')(err);
+      require('debug')('evds.db.put')(err);
       fn({ error: err.message });
     }
   };

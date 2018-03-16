@@ -18,10 +18,13 @@ const app = new App();
 const isProduction = process.env.NODE_ENV === 'production';
 
 const tick = async () => {
-  connection.socket
-    .on('error', (err) => console.error(err));
-
   try {
+    await new Promise((resolve, reject) => {
+      connection.socket
+        .on('error', reject)
+        .on('connect', resolve)
+        .on('connect', () => console.log('socket connected'));
+    });
     const currentCount = await connection
       .bucket('ticker')
       .key('count')
@@ -101,5 +104,10 @@ app
 
 tick();
 if (isProduction) {
-  scheduleBackup('lucidbyte_backup', '/tmp/_data');
+  const bucket = process.env.AWS_S3_BACKUP_BUCKET;
+  scheduleBackup(
+    bucket,
+    'lucidbyte_backup',
+    '/tmp/_data'
+  );
 }

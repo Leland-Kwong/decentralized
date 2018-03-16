@@ -13,7 +13,7 @@
     "start": "pm2 start ecosystem.config.js --env production",
     "start:dev": "NODE_ENV=development BABEL_ENV=development parcel index.html",
     "start:staging": "NODE_ENV=staging parcel index.html",
-    "start:dev.server": "DEBUG=evds.* NODE_ENV=development nodemon --max_old_space_size=750 --inspect src/examples/server/index.js",
+    "start:dev.server": "DEBUG=evds.* NODE_ENV=development PORT=3009 nodemon --max_old_space_size=750 --inspect src/examples/server/index.js",
     "test": "NODE_ENV=test jest",
     "deploy": "now --dotenv",
     "bench.db": "DEBUG=bench.* NODE_ENV=bench node bench/db.js",

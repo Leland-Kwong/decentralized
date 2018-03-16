@@ -4,9 +4,9 @@ const productionApiBaseRoute = `https://todos.lelandkwong.com`;
 let isDev;
 
 if (!isServer) {
-  isDev = module.exports.isDev = location.hostname === 'dev.test1.com';
+  isDev = module.exports.isDev = location.hostname === 'localhost2';
   module.exports.serverApiBaseRoute = isDev
-    ? `http://${location.hostname}:3000`
+    ? `http://${location.hostname}:3009`
     : productionApiBaseRoute;
 }
 

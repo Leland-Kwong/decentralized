@@ -1,5 +1,3 @@
-// TODO: create a `write` function that receives the changeData and adds a version property to the changeData. This version will also be used for the opLog id as well as for the global to cache to check if the cache value should be updated. #mvp #priority-1
-
 /*
   Parses data by first handling the headers, then the values.
   Data format is as follows:
@@ -57,7 +55,11 @@ const decodeData = (data) => {
   }
   const valueDelimIndex = data.indexOf(d.VALUE);
   const headers = data.slice(0, valueDelimIndex).split(d.HEADER);
-  const value = data.slice(valueDelimIndex + d.VALUE.length);
+  let value = data.slice(valueDelimIndex + d.VALUE.length);
+  const [type] = headers;
+  if (type === 'number') {
+    value = Number(value);
+  }
   // default to returning the raw value
   return {
     headers,

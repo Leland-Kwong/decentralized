@@ -1,5 +1,5 @@
+// TODO:
 // TODO: user permissions #mvp
-// TODO: add syncing support. Syncing works by syncing the db files #mvp
 // TODO: add request throttling
 // TODO: user management #enhancement
 // TODO: add file upload support #enhancement

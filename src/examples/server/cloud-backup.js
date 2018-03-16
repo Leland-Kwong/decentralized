@@ -1,3 +1,5 @@
+// TODO: backup files individually based on its last-modified date using `fs.stats`
+
 // require modules
 const fs = require('fs');
 const archiver = require('archiver');
@@ -76,10 +78,10 @@ const AWS = require('aws-sdk');
 const s3 = new AWS.S3({
   region: 'us-west-1'
 });
-function awsSync(key, stream) {
+function awsSync(bucket, key, stream) {
   const start = Now();
   const params = {
-    Bucket: 'my-personal-projects',
+    Bucket: bucket,
     Key: key,
     Body: stream
   };
@@ -94,7 +96,7 @@ function awsSync(key, stream) {
 /*
   Backs up data to aws s3. All file paths are relative to home directory.
  */
-module.exports = (key, dir) => {
+module.exports = (bucket, key, dir) => {
   if (!dir) {
     throw `'dir' parameter must be provided.`;
   }
